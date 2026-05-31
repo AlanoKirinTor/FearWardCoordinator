@@ -29,8 +29,8 @@ local function ClearGrid()
     wipe(objects)
 end
 
-local function AddText(text, x, y)
-    local fs = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+local function AddText(text, x, y, template)
+    local fs = frame:CreateFontString(nil, "OVERLAY", template or "GameFontNormal")
     fs:SetPoint("TOPLEFT", frame, "TOPLEFT", x, y)
     fs:SetText(text)
     table.insert(objects, fs)
@@ -45,16 +45,13 @@ local function AddButton(priest, group, x, y)
     local assigned = addon:GetAssignment(priest, group)
     btn:SetText(assigned and "X" or "")
 
-    if not addon:IsLeader() then
+    if not addon:CanEditPriest(priest) then
         btn:Disable()
-        btn:SetAlpha(0.4)
+        btn:SetAlpha(0.25)
     end
 
     btn:SetScript("OnClick", function()
-        if not addon:IsLeader() then return end
-
         addon:SetAssignment(priest, group)
-
         addon:RefreshGridUI()
 
         if addon.RefreshUI then
@@ -82,14 +79,15 @@ function addon:RefreshGridUI()
     end
 
     if not addon.state.priests or #addon.state.priests == 0 then
-        AddText("No priests found. Join a raid with priests, then reopen /fwcgrid.", 20, -90)
+        AddText("No priests found.", 20, -90)
         return
     end
 
     for row, priest in ipairs(addon.state.priests) do
         local y = -70 - ((row - 1) * 30)
 
-        AddText(priest, 20, y)
+        local nameColor = addon:CanEditPriest(priest) and "GameFontNormal" or "GameFontDisable"
+        AddText(priest, 20, y, nameColor)
 
         for group = 1, 8 do
             local x = 130 + ((group - 1) * 48)
@@ -98,9 +96,9 @@ function addon:RefreshGridUI()
     end
 
     if addon:IsLeader() then
-        AddText("You have raid lead/assist. Click boxes to assign groups.", 20, -360)
+        AddText("Lead/assist mode: you can edit everyone.", 20, -360)
     else
-        AddText("View only. Raid leader or assist required to edit.", 20, -360)
+        AddText("Normal mode: you can only edit yourself.", 20, -360)
     end
 end
 
