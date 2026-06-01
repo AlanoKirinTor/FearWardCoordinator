@@ -6,8 +6,38 @@ addon.state.assignments = addon.state.assignments or {}
 
 local FEAR_WARD_SPELL = GetSpellInfo(6346) or "Fear Ward"
 
+local function AddResizeCorners(targetFrame, minW, minH, maxW, maxH)
+    targetFrame:SetResizable(true)
+    targetFrame:SetResizeBounds(minW, minH, maxW, maxH)
+
+    local corners = {
+        { point = "TOPLEFT", cursor = "TOPLEFT" },
+        { point = "TOPRIGHT", cursor = "TOPRIGHT" },
+        { point = "BOTTOMLEFT", cursor = "BOTTOMLEFT" },
+        { point = "BOTTOMRIGHT", cursor = "BOTTOMRIGHT" },
+    }
+
+    for _, data in ipairs(corners) do
+        local grip = CreateFrame("Button", nil, targetFrame)
+        grip:SetSize(16, 16)
+        grip:SetPoint(data.point, targetFrame, data.point, 0, 0)
+        grip:RegisterForClicks("RightButtonDown", "RightButtonUp")
+
+        grip:SetScript("OnMouseDown", function()
+            if InCombatLockdown() then return end
+            if IsShiftKeyDown() and IsMouseButtonDown("RightButton") then
+                targetFrame:StartSizing(data.cursor)
+            end
+        end)
+
+        grip:SetScript("OnMouseUp", function()
+            targetFrame:StopMovingOrSizing()
+        end)
+    end
+end
+
 --------------------------------------------------
--- MAIN SMALL WINDOW
+-- MAIN BAR
 --------------------------------------------------
 
 local frame = CreateFrame("Button", "FWCFrame", UIParent, "BackdropTemplate")
@@ -30,6 +60,8 @@ frame:SetBackdropColor(0, 0.35, 0, 0.9)
 
 addon.uiFrame = frame
 
+AddResizeCorners(frame, 160, 50, 400, 120)
+
 local icon = frame:CreateTexture(nil, "ARTWORK")
 icon:SetSize(32, 32)
 icon:SetPoint("LEFT", frame, "LEFT", 8, 0)
@@ -42,12 +74,12 @@ local groupText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge
 groupText:SetPoint("LEFT", frame, "LEFT", 48, -10)
 
 --------------------------------------------------
--- POPOUT WINDOW
+-- SMALLER POPOUT UNDER MAIN BAR
 --------------------------------------------------
 
 local popout = CreateFrame("Frame", "FWCPopoutFrame", UIParent, "BasicFrameTemplateWithInset")
-popout:SetSize(320, 380)
-popout:SetPoint("LEFT", frame, "RIGHT", 8, 0)
+popout:SetSize(260, 240)
+popout:SetPoint("TOP", frame, "BOTTOM", 0, -4)
 popout:Hide()
 popout:SetAlpha(1)
 
@@ -57,9 +89,7 @@ popout.title = popout:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 popout.title:SetPoint("CENTER", popout.TitleBg, "CENTER")
 popout.title:SetText("My Fear Ward Groups")
 
---------------------------------------------------
--- DATA HELPERS
---------------------------------------------------
+AddResizeCorners(popout, 220, 160, 520, 600)
 
 local popoutObjects = {}
 local playerRows = {}
@@ -90,9 +120,7 @@ local function GetMyGroups()
 end
 
 local function ClearPopout()
-    if InCombatLockdown() then
-        return
-    end
+    if InCombatLockdown() then return end
 
     for _, obj in pairs(popoutObjects) do
         obj:Hide()
@@ -112,15 +140,9 @@ local function AddText(text, x, y, template)
     return fs
 end
 
---------------------------------------------------
--- SECURE FEAR WARD BUTTON
--- IMPORTANT:
--- These must be created OUT OF COMBAT.
---------------------------------------------------
-
 local function AddPlayerButton(member, x, y)
     local btn = CreateFrame("Button", nil, popout, "SecureActionButtonTemplate")
-    btn:SetSize(140, 22)
+    btn:SetSize(115, 18)
     btn:SetPoint("TOPLEFT", popout, "TOPLEFT", x, y)
 
     btn:SetAttribute("type", "spell")
@@ -134,8 +156,8 @@ local function AddPlayerButton(member, x, y)
     name:SetText(member.name)
 
     local status = popout:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    status:SetPoint("TOPLEFT", popout, "TOPLEFT", 185, y + 2)
-    status:SetText("Checking")
+    status:SetPoint("TOPLEFT", popout, "TOPLEFT", 145, y + 1)
+    status:SetText("...")
 
     table.insert(popoutObjects, btn)
     table.insert(popoutObjects, status)
@@ -149,11 +171,6 @@ local function AddPlayerButton(member, x, y)
 
     return btn
 end
-
---------------------------------------------------
--- STATUS UPDATE ONLY
--- SAFE IN COMBAT
---------------------------------------------------
 
 function addon:RefreshPopoutStatusOnly()
     for _, row in ipairs(playerRows) do
@@ -184,14 +201,9 @@ function addon:RefreshPopoutStatusOnly()
     end
 end
 
---------------------------------------------------
--- FULL POPOUT BUILD
--- OUT OF COMBAT ONLY
---------------------------------------------------
-
 function addon:BuildPopout()
     if InCombatLockdown() then
-        print("|cffff0000FWC: Cannot build click-cast buttons during combat. Open this before the pull.|r")
+        print("|cffff0000FWC: Cannot rebuild buttons during combat. Open before pull.|r")
         return
     end
 
@@ -202,29 +214,27 @@ function addon:BuildPopout()
     popout.title:SetText("My Fear Ward Groups")
 
     if #groups == 0 then
-        AddText("No groups assigned to you.", 16, -45)
+        AddText("No groups assigned.", 12, -34)
         return
     end
 
-    AddText("Click player name to cast Fear Ward", 16, -38, "GameFontDisableSmall")
+    AddText("Click name to cast Fear Ward", 12, -32, "GameFontDisableSmall")
 
     local line = 0
 
     for _, groupNumber in ipairs(groups) do
-        AddText("Group " .. groupNumber, 16, -65 - (line * 24), "GameFontHighlight")
+        AddText("Group " .. groupNumber, 12, -52 - (line * 20), "GameFontHighlight")
         line = line + 1
 
         local members = addon:GetGroupMembers(groupNumber)
 
         if #members == 0 then
-            AddText("No members", 32, -65 - (line * 24), "GameFontDisableSmall")
+            AddText("No members", 26, -52 - (line * 20), "GameFontDisableSmall")
             line = line + 1
         else
             for _, member in ipairs(members) do
-                local y = -65 - (line * 24)
-
-                AddPlayerButton(member, 32, y)
-
+                local y = -52 - (line * 20)
+                AddPlayerButton(member, 26, y)
                 line = line + 1
             end
         end
@@ -233,21 +243,17 @@ function addon:BuildPopout()
     addon:RefreshPopoutStatusOnly()
 end
 
---------------------------------------------------
--- TOGGLE POPOUT
---------------------------------------------------
-
 local function TogglePopout()
     if popout:IsShown() then
         if InCombatLockdown() then
-            print("|cffffff00FWC: Popout will close after combat. Secure frames cannot always be hidden in combat.|r")
+            print("|cffffff00FWC: Cannot safely close secure frame in combat.|r")
             return
         end
 
         popout:Hide()
     else
         if InCombatLockdown() and #playerRows == 0 then
-            print("|cffff0000FWC: Open the Fear Ward popout before combat to enable click-casting.|r")
+            print("|cffff0000FWC: Open before combat to enable click-casting.|r")
             return
         end
 
@@ -262,10 +268,6 @@ local function TogglePopout()
 end
 
 frame:SetScript("OnClick", TogglePopout)
-
---------------------------------------------------
--- MAIN UI REFRESH
---------------------------------------------------
 
 function addon:RefreshUI()
     if not frame:IsShown() then return end
@@ -295,7 +297,7 @@ end
 function addon:ToggleUI()
     if frame:IsShown() then
         if InCombatLockdown() then
-            print("|cffffff00FWC: Cannot safely close secure click-cast frames in combat.|r")
+            print("|cffffff00FWC: Cannot safely close secure frames in combat.|r")
             return
         end
 
@@ -306,10 +308,6 @@ function addon:ToggleUI()
         addon:RefreshUI()
     end
 end
-
---------------------------------------------------
--- LIVE TIMER UPDATE
---------------------------------------------------
 
 local updater = CreateFrame("Frame")
 local elapsed = 0
@@ -329,10 +327,6 @@ updater:SetScript("OnUpdate", function(_, delta)
         end
     end
 end)
-
---------------------------------------------------
--- REBUILD AFTER COMBAT
---------------------------------------------------
 
 local combatFrame = CreateFrame("Frame")
 combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
