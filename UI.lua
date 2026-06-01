@@ -6,6 +6,10 @@ addon.state.assignments = addon.state.assignments or {}
 
 local FEAR_WARD_SPELL = GetSpellInfo(6346) or "Fear Ward"
 
+--------------------------------------------------
+-- MAIN SMALL WINDOW
+--------------------------------------------------
+
 local frame = CreateFrame("Button", "FWCFrame", UIParent, "BackdropTemplate")
 frame:SetSize(190, 60)
 frame:SetPoint("CENTER")
@@ -26,20 +30,6 @@ frame:SetBackdropColor(0, 0.35, 0, 0.9)
 
 addon.uiFrame = frame
 
-local popoutRows = {}
-
-local popout = CreateFrame("Frame", "FWCPopoutFrame", UIParent, "BasicFrameTemplateWithInset")
-popout:SetSize(300, 360)
-popout:SetPoint("LEFT", frame, "RIGHT", 8, 0)
-popout:Hide()
-popout:SetAlpha(1)
-
-table.insert(UISpecialFrames, "FWCPopoutFrame")
-
-popout.title = popout:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-popout.title:SetPoint("CENTER", popout.TitleBg, "CENTER")
-popout.title:SetText("My Fear Ward Groups")
-
 local icon = frame:CreateTexture(nil, "ARTWORK")
 icon:SetSize(32, 32)
 icon:SetPoint("LEFT", frame, "LEFT", 8, 0)
@@ -50,6 +40,29 @@ nameText:SetPoint("TOPLEFT", frame, "TOPLEFT", 48, -10)
 
 local groupText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
 groupText:SetPoint("LEFT", frame, "LEFT", 48, -10)
+
+--------------------------------------------------
+-- POPOUT WINDOW
+--------------------------------------------------
+
+local popout = CreateFrame("Frame", "FWCPopoutFrame", UIParent, "BasicFrameTemplateWithInset")
+popout:SetSize(320, 380)
+popout:SetPoint("LEFT", frame, "RIGHT", 8, 0)
+popout:Hide()
+popout:SetAlpha(1)
+
+table.insert(UISpecialFrames, "FWCPopoutFrame")
+
+popout.title = popout:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+popout.title:SetPoint("CENTER", popout.TitleBg, "CENTER")
+popout.title:SetText("My Fear Ward Groups")
+
+--------------------------------------------------
+-- DATA HELPERS
+--------------------------------------------------
+
+local popoutObjects = {}
+local playerRows = {}
 
 local function NormalizeName(name)
     if not name then return nil end
@@ -77,19 +90,33 @@ local function GetMyGroups()
 end
 
 local function ClearPopout()
-    for _, r in pairs(popoutRows) do
-        r:Hide()
+    if InCombatLockdown() then
+        return
     end
-    wipe(popoutRows)
+
+    for _, obj in pairs(popoutObjects) do
+        obj:Hide()
+    end
+
+    wipe(popoutObjects)
+    wipe(playerRows)
 end
 
-local function AddPopoutText(text, x, y, template)
+local function AddText(text, x, y, template)
     local fs = popout:CreateFontString(nil, "OVERLAY", template or "GameFontNormal")
     fs:SetPoint("TOPLEFT", popout, "TOPLEFT", x, y)
     fs:SetText(text)
-    table.insert(popoutRows, fs)
+
+    table.insert(popoutObjects, fs)
+
     return fs
 end
+
+--------------------------------------------------
+-- SECURE FEAR WARD BUTTON
+-- IMPORTANT:
+-- These must be created OUT OF COMBAT.
+--------------------------------------------------
 
 local function AddPlayerButton(member, x, y)
     local btn = CreateFrame("Button", nil, popout, "SecureActionButtonTemplate")
@@ -100,80 +127,145 @@ local function AddPlayerButton(member, x, y)
     btn:SetAttribute("spell", FEAR_WARD_SPELL)
     btn:SetAttribute("unit", member.unit)
 
-    local text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    text:SetPoint("LEFT", btn, "LEFT", 0, 0)
-    text:SetText(member.name)
-
     btn:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
 
-    table.insert(popoutRows, btn)
+    local name = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    name:SetPoint("LEFT", btn, "LEFT", 0, 0)
+    name:SetText(member.name)
+
+    local status = popout:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    status:SetPoint("TOPLEFT", popout, "TOPLEFT", 185, y + 2)
+    status:SetText("Checking")
+
+    table.insert(popoutObjects, btn)
+    table.insert(popoutObjects, status)
+
+    table.insert(playerRows, {
+        button = btn,
+        status = status,
+        unit = member.unit,
+        name = member.name
+    })
+
     return btn
 end
 
-function addon:RefreshPopout()
-    ClearPopout()
+--------------------------------------------------
+-- STATUS UPDATE ONLY
+-- SAFE IN COMBAT
+--------------------------------------------------
 
-    local groups = GetMyGroups()
-    popout.title:SetText("My Fear Ward Groups")
+function addon:RefreshPopoutStatusOnly()
+    for _, row in ipairs(playerRows) do
+        local unit = row.unit
+        local statusText
 
-    if #groups == 0 then
-        AddPopoutText("No groups assigned to you.", 16, -45)
+        if not UnitExists(unit) then
+            statusText = "|cff888888Gone|r"
+        elseif UnitIsDeadOrGhost(unit) then
+            statusText = "|cff888888Dead|r"
+        elseif not UnitIsConnected(unit) then
+            statusText = "|cff888888Offline|r"
+        else
+            local hasBuff, remaining = addon:GetFearWardInfo(unit)
+
+            if hasBuff then
+                if remaining > 0 and remaining < 30 then
+                    statusText = "|cffffff00FW " .. addon:FormatTime(remaining) .. "|r"
+                else
+                    statusText = "|cff00ff00FW " .. addon:FormatTime(remaining) .. "|r"
+                end
+            else
+                statusText = "|cffff0000Missing|r"
+            end
+        end
+
+        row.status:SetText(statusText)
+    end
+end
+
+--------------------------------------------------
+-- FULL POPOUT BUILD
+-- OUT OF COMBAT ONLY
+--------------------------------------------------
+
+function addon:BuildPopout()
+    if InCombatLockdown() then
+        print("|cffff0000FWC: Cannot build click-cast buttons during combat. Open this before the pull.|r")
         return
     end
 
-    AddPopoutText("Click player name to cast Fear Ward", 16, -38, "GameFontDisableSmall")
+    ClearPopout()
+
+    local groups = GetMyGroups()
+
+    popout.title:SetText("My Fear Ward Groups")
+
+    if #groups == 0 then
+        AddText("No groups assigned to you.", 16, -45)
+        return
+    end
+
+    AddText("Click player name to cast Fear Ward", 16, -38, "GameFontDisableSmall")
 
     local line = 0
 
     for _, groupNumber in ipairs(groups) do
-        AddPopoutText("Group " .. groupNumber, 16, -65 - (line * 24), "GameFontHighlight")
+        AddText("Group " .. groupNumber, 16, -65 - (line * 24), "GameFontHighlight")
         line = line + 1
 
         local members = addon:GetGroupMembers(groupNumber)
 
         if #members == 0 then
-            AddPopoutText("No members", 32, -65 - (line * 24), "GameFontDisableSmall")
+            AddText("No members", 32, -65 - (line * 24), "GameFontDisableSmall")
             line = line + 1
         else
             for _, member in ipairs(members) do
                 local y = -65 - (line * 24)
 
-                local hasBuff, remaining = addon:GetFearWardInfo(member.unit)
-
-                local status
-                if UnitIsDeadOrGhost(member.unit) then
-                    status = "|cff888888Dead|r"
-                elseif not UnitIsConnected(member.unit) then
-                    status = "|cff888888Offline|r"
-                elseif hasBuff then
-                    if remaining > 0 and remaining < 30 then
-                        status = "|cffffff00FW " .. addon:FormatTime(remaining) .. "|r"
-                    else
-                        status = "|cff00ff00FW " .. addon:FormatTime(remaining) .. "|r"
-                    end
-                else
-                    status = "|cffff0000Missing|r"
-                end
-
                 AddPlayerButton(member, 32, y)
-                AddPopoutText(status, 175, y + 2, "GameFontNormalSmall")
 
                 line = line + 1
             end
         end
     end
+
+    addon:RefreshPopoutStatusOnly()
 end
+
+--------------------------------------------------
+-- TOGGLE POPOUT
+--------------------------------------------------
 
 local function TogglePopout()
     if popout:IsShown() then
+        if InCombatLockdown() then
+            print("|cffffff00FWC: Popout will close after combat. Secure frames cannot always be hidden in combat.|r")
+            return
+        end
+
         popout:Hide()
     else
+        if InCombatLockdown() and #playerRows == 0 then
+            print("|cffff0000FWC: Open the Fear Ward popout before combat to enable click-casting.|r")
+            return
+        end
+
         popout:Show()
-        addon:RefreshPopout()
+
+        if not InCombatLockdown() then
+            addon:BuildPopout()
+        else
+            addon:RefreshPopoutStatusOnly()
+        end
     end
 end
 
 frame:SetScript("OnClick", TogglePopout)
+
+--------------------------------------------------
+-- MAIN UI REFRESH
+--------------------------------------------------
 
 function addon:RefreshUI()
     if not frame:IsShown() then return end
@@ -196,19 +288,28 @@ function addon:RefreshUI()
     end
 
     if popout:IsShown() then
-        addon:RefreshPopout()
+        addon:RefreshPopoutStatusOnly()
     end
 end
 
 function addon:ToggleUI()
-    frame:SetShown(not frame:IsShown())
-
     if frame:IsShown() then
-        addon:RefreshUI()
-    else
+        if InCombatLockdown() then
+            print("|cffffff00FWC: Cannot safely close secure click-cast frames in combat.|r")
+            return
+        end
+
+        frame:Hide()
         popout:Hide()
+    else
+        frame:Show()
+        addon:RefreshUI()
     end
 end
+
+--------------------------------------------------
+-- LIVE TIMER UPDATE
+--------------------------------------------------
 
 local updater = CreateFrame("Frame")
 local elapsed = 0
@@ -222,5 +323,22 @@ updater:SetScript("OnUpdate", function(_, delta)
         if frame:IsShown() then
             addon:RefreshUI()
         end
+
+        if popout:IsShown() then
+            addon:RefreshPopoutStatusOnly()
+        end
+    end
+end)
+
+--------------------------------------------------
+-- REBUILD AFTER COMBAT
+--------------------------------------------------
+
+local combatFrame = CreateFrame("Frame")
+combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+
+combatFrame:SetScript("OnEvent", function()
+    if popout:IsShown() then
+        addon:BuildPopout()
     end
 end)
