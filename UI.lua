@@ -6,49 +6,25 @@ addon.state.assignments = addon.state.assignments or {}
 
 local FEAR_WARD_SPELL = GetSpellInfo(6346) or "Fear Ward"
 
-local function AddResizeCorners(targetFrame, minW, minH, maxW, maxH)
-    targetFrame:SetResizable(true)
-    targetFrame:SetResizeBounds(minW, minH, maxW, maxH)
-
-    local corners = {
-        { point = "TOPLEFT", cursor = "TOPLEFT" },
-        { point = "TOPRIGHT", cursor = "TOPRIGHT" },
-        { point = "BOTTOMLEFT", cursor = "BOTTOMLEFT" },
-        { point = "BOTTOMRIGHT", cursor = "BOTTOMRIGHT" },
-    }
-
-    for _, data in ipairs(corners) do
-        local grip = CreateFrame("Button", nil, targetFrame)
-        grip:SetSize(16, 16)
-        grip:SetPoint(data.point, targetFrame, data.point, 0, 0)
-        grip:RegisterForClicks("RightButtonDown", "RightButtonUp")
-
-        grip:SetScript("OnMouseDown", function()
-            if InCombatLockdown() then return end
-            if IsShiftKeyDown() and IsMouseButtonDown("RightButton") then
-                targetFrame:StartSizing(data.cursor)
-            end
-        end)
-
-        grip:SetScript("OnMouseUp", function()
-            targetFrame:StopMovingOrSizing()
-        end)
-    end
+local function MakeMovable(f)
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function(self)
+        if not InCombatLockdown() then
+            self:StartMoving()
+        end
+    end)
+    f:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+    end)
 end
-
---------------------------------------------------
--- MAIN BAR
---------------------------------------------------
 
 local frame = CreateFrame("Button", "FWCFrame", UIParent, "BackdropTemplate")
 frame:SetSize(190, 60)
 frame:SetPoint("CENTER")
-frame:SetMovable(true)
-frame:EnableMouse(true)
-frame:RegisterForDrag("LeftButton")
-frame:SetScript("OnDragStart", frame.StartMoving)
-frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
 frame:Hide()
+MakeMovable(frame)
 
 frame:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -59,8 +35,6 @@ frame:SetBackdrop({
 frame:SetBackdropColor(0, 0.35, 0, 0.9)
 
 addon.uiFrame = frame
-
-AddResizeCorners(frame, 160, 50, 400, 120)
 
 local icon = frame:CreateTexture(nil, "ARTWORK")
 icon:SetSize(32, 32)
@@ -73,23 +47,18 @@ nameText:SetPoint("TOPLEFT", frame, "TOPLEFT", 48, -10)
 local groupText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
 groupText:SetPoint("LEFT", frame, "LEFT", 48, -10)
 
---------------------------------------------------
--- SMALLER POPOUT UNDER MAIN BAR
---------------------------------------------------
-
 local popout = CreateFrame("Frame", "FWCPopoutFrame", UIParent, "BasicFrameTemplateWithInset")
 popout:SetSize(260, 240)
 popout:SetPoint("TOP", frame, "BOTTOM", 0, -4)
 popout:Hide()
 popout:SetAlpha(1)
+MakeMovable(popout)
 
 table.insert(UISpecialFrames, "FWCPopoutFrame")
 
 popout.title = popout:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 popout.title:SetPoint("CENTER", popout.TitleBg, "CENTER")
 popout.title:SetText("My Fear Ward Groups")
-
-AddResizeCorners(popout, 220, 160, 520, 600)
 
 local popoutObjects = {}
 local playerRows = {}
