@@ -10,6 +10,8 @@ frame:SetPoint("CENTER")
 frame:Hide()
 frame:SetMovable(true)
 frame:EnableMouse(true)
+frame:SetResizable(true)
+frame:SetResizeBounds(420, 260, 1000, 800)
 frame:RegisterForDrag("LeftButton")
 frame:SetScript("OnDragStart", frame.StartMoving)
 frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
@@ -22,6 +24,38 @@ addon.gridFrame = frame
 
 local objects = {}
 
+local function AddResizeCorners(targetFrame)
+    local corners = {
+        { point = "TOPLEFT", cursor = "TOPLEFT" },
+        { point = "TOPRIGHT", cursor = "TOPRIGHT" },
+        { point = "BOTTOMLEFT", cursor = "BOTTOMLEFT" },
+        { point = "BOTTOMRIGHT", cursor = "BOTTOMRIGHT" },
+    }
+
+    for _, data in ipairs(corners) do
+        local grip = CreateFrame("Button", nil, targetFrame)
+        grip:SetSize(18, 18)
+        grip:SetPoint(data.point, targetFrame, data.point, 0, 0)
+        grip:RegisterForClicks("RightButtonDown", "RightButtonUp")
+
+        grip:SetScript("OnMouseDown", function()
+            if IsShiftKeyDown() and IsMouseButtonDown("RightButton") then
+                targetFrame:StartSizing(data.cursor)
+            end
+        end)
+
+        grip:SetScript("OnMouseUp", function()
+            targetFrame:StopMovingOrSizing()
+
+            if addon.RefreshGridUI then
+                addon:RefreshGridUI()
+            end
+        end)
+    end
+end
+
+AddResizeCorners(frame)
+
 local function ClearGrid()
     for _, obj in ipairs(objects) do
         obj:Hide()
@@ -29,10 +63,11 @@ local function ClearGrid()
     wipe(objects)
 end
 
-local function AddText(text, x, y, template)
+local function AddText(text, x, y, template, justify)
     local fs = frame:CreateFontString(nil, "OVERLAY", template or "GameFontNormal")
-    fs:SetPoint("TOPLEFT", frame, "TOPLEFT", x, y)
+    fs:SetPoint("CENTER", frame, "TOPLEFT", x, y)
     fs:SetText(text)
+    fs:SetJustifyH(justify or "CENTER")
     table.insert(objects, fs)
     return fs
 end
@@ -40,7 +75,7 @@ end
 local function AddButton(priest, group, x, y)
     local btn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     btn:SetSize(36, 24)
-    btn:SetPoint("TOPLEFT", frame, "TOPLEFT", x, y)
+    btn:SetPoint("CENTER", frame, "TOPLEFT", x, y)
 
     local assigned = addon:GetAssignment(priest, group)
     btn:SetText(assigned and "X" or "")
@@ -72,33 +107,49 @@ function addon:RefreshGridUI()
         addon:ScanRaid()
     end
 
-    AddText("Priest", 20, -40)
+    local width = frame:GetWidth()
+    local height = frame:GetHeight()
+
+    local leftPad = 95
+    local rightPad = 30
+    local topY = -45
+    local rowStartY = -78
+    local rowHeight = 30
+
+    local usableWidth = width - leftPad - rightPad
+    local colWidth = usableWidth / 8
+
+    AddText("Priest", 48, topY, "GameFontNormal")
 
     for group = 1, 8 do
-        AddText("G" .. group, 130 + ((group - 1) * 48), -40)
+        local x = leftPad + ((group - 0.5) * colWidth)
+        AddText("G" .. group, x, topY, "GameFontNormal")
     end
 
     if not addon.state.priests or #addon.state.priests == 0 then
-        AddText("No priests found.", 20, -90)
+        AddText("No priests found.", width / 2, -110, "GameFontNormal")
         return
     end
 
     for row, priest in ipairs(addon.state.priests) do
-        local y = -70 - ((row - 1) * 30)
+        local y = rowStartY - ((row - 1) * rowHeight)
 
-        local nameColor = addon:CanEditPriest(priest) and "GameFontNormal" or "GameFontDisable"
-        AddText(priest, 20, y, nameColor)
+        if math.abs(y) < height - 35 then
+            local template = addon:CanEditPriest(priest) and "GameFontNormal" or "GameFontDisable"
 
-        for group = 1, 8 do
-            local x = 130 + ((group - 1) * 48)
-            AddButton(priest, group, x, y + 4)
+            AddText(priest, 48, y, template)
+
+            for group = 1, 8 do
+                local x = leftPad + ((group - 0.5) * colWidth)
+                AddButton(priest, group, x, y)
+            end
         end
     end
 
     if addon:IsLeader() then
-        AddText("Lead/assist mode: you can edit everyone.", 20, -360)
+        AddText("Lead/assist mode: edit everyone.", width / 2, -(height - 32), "GameFontNormal")
     else
-        AddText("Normal mode: you can only edit yourself.", 20, -360)
+        AddText("Normal mode: edit yourself only.", width / 2, -(height - 32), "GameFontNormal")
     end
 end
 
@@ -109,3 +160,9 @@ function addon:ToggleGridUI()
         addon:RefreshGridUI()
     end
 end
+
+frame:SetScript("OnSizeChanged", function()
+    if addon.RefreshGridUI then
+        addon:RefreshGridUI()
+    end
+end)
