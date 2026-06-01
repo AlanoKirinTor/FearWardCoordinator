@@ -7,17 +7,6 @@ addon.state.assignments = addon.state.assignments or {}
 local frame = CreateFrame("Frame")
 
 local wasGrouped = false
-local lastGroupType = "solo"
-
-local function GetGroupType()
-    if IsInRaid() then
-        return "raid"
-    elseif IsInGroup() then
-        return "party"
-    end
-
-    return "solo"
-end
 
 local function RefreshAll()
     if addon.ScanRaid then
@@ -33,6 +22,24 @@ local function RefreshAll()
     end
 end
 
+local function ClearAllData()
+    addon.state.assignments = {}
+    addon.state.priests = {}
+
+    FearWardCoordinatorDB = FearWardCoordinatorDB or {}
+    FearWardCoordinatorDB.assignments = addon.state.assignments
+
+    if addon.RefreshUI then
+        addon:RefreshUI()
+    end
+
+    if addon.RefreshGridUI then
+        addon:RefreshGridUI()
+    end
+
+    print("|cffffff00FWC: Group left. Assignments cleared.|r")
+end
+
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("GROUP_ROSTER_UPDATE")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -45,7 +52,6 @@ frame:SetScript("OnEvent", function(_, event)
         addon.state.assignments = FearWardCoordinatorDB.assignments
 
         wasGrouped = IsInGroup()
-        lastGroupType = GetGroupType()
 
         print("|cff00ff00FearWardCoordinator loaded.|r Type |cffffff00/fwc|r or |cffffff00/fwcgrid|r")
 
@@ -55,28 +61,14 @@ frame:SetScript("OnEvent", function(_, event)
 
     if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
         local isGrouped = IsInGroup()
-        local groupType = GetGroupType()
 
-        if not wasGrouped and isGrouped then
-            if addon.ClearAssignments then
-                addon:ClearAssignments()
-                print("|cffffff00FWC: New group detected. Previous assignments cleared.|r")
-            end
-        elseif wasGrouped and not isGrouped then
-            if addon.ClearAssignments then
-                addon:ClearAssignments()
-            end
-        elseif wasGrouped and isGrouped and lastGroupType ~= groupType then
-            if addon.ClearAssignments then
-                addon:ClearAssignments()
-                print("|cffffff00FWC: Group type changed. Previous assignments cleared.|r")
-            end
+        if wasGrouped and not isGrouped then
+            ClearAllData()
+        else
+            RefreshAll()
         end
 
         wasGrouped = isGrouped
-        lastGroupType = groupType
-
-        RefreshAll()
     end
 end)
 
