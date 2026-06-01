@@ -6,35 +6,77 @@ addon.state.assignments = addon.state.assignments or {}
 
 local frame = CreateFrame("Frame")
 
+local wasGrouped = false
+local lastGroupType = "solo"
+
+local function GetGroupType()
+    if IsInRaid() then
+        return "raid"
+    elseif IsInGroup() then
+        return "party"
+    end
+
+    return "solo"
+end
+
+local function RefreshAll()
+    if addon.ScanRaid then
+        addon:ScanRaid()
+    end
+
+    if addon.RefreshUI then
+        addon:RefreshUI()
+    end
+
+    if addon.RefreshGridUI then
+        addon:RefreshGridUI()
+    end
+end
+
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("GROUP_ROSTER_UPDATE")
-frame:RegisterEvent("RAID_ROSTER_UPDATE")
+frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 frame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
         FearWardCoordinatorDB = FearWardCoordinatorDB or {}
+        FearWardCoordinatorDB.assignments = FearWardCoordinatorDB.assignments or {}
 
-        addon.state.assignments = FearWardCoordinatorDB.assignments or {}
-        FearWardCoordinatorDB.assignments = addon.state.assignments
+        addon.state.assignments = FearWardCoordinatorDB.assignments
+
+        wasGrouped = IsInGroup()
+        lastGroupType = GetGroupType()
 
         print("|cff00ff00FearWardCoordinator loaded.|r Type |cffffff00/fwc|r or |cffffff00/fwcgrid|r")
 
-        if addon.ScanRaid then
-            addon:ScanRaid()
+        RefreshAll()
+        return
+    end
+
+    if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
+        local isGrouped = IsInGroup()
+        local groupType = GetGroupType()
+
+        if not wasGrouped and isGrouped then
+            if addon.ClearAssignments then
+                addon:ClearAssignments()
+                print("|cffffff00FWC: New group detected. Previous assignments cleared.|r")
+            end
+        elseif wasGrouped and not isGrouped then
+            if addon.ClearAssignments then
+                addon:ClearAssignments()
+            end
+        elseif wasGrouped and isGrouped and lastGroupType ~= groupType then
+            if addon.ClearAssignments then
+                addon:ClearAssignments()
+                print("|cffffff00FWC: Group type changed. Previous assignments cleared.|r")
+            end
         end
 
-    elseif event == "GROUP_ROSTER_UPDATE" or event == "RAID_ROSTER_UPDATE" then
-        if addon.ScanRaid then
-            addon:ScanRaid()
-        end
+        wasGrouped = isGrouped
+        lastGroupType = groupType
 
-        if addon.RefreshUI then
-            addon:RefreshUI()
-        end
-
-        if addon.RefreshGridUI then
-            addon:RefreshGridUI()
-        end
+        RefreshAll()
     end
 end)
 
