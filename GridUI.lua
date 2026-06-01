@@ -63,11 +63,11 @@ local function ClearGrid()
     wipe(objects)
 end
 
-local function AddText(text, x, y, template, justify)
+local function AddText(text, x, y, template)
     local fs = frame:CreateFontString(nil, "OVERLAY", template or "GameFontNormal")
     fs:SetPoint("CENTER", frame, "TOPLEFT", x, y)
     fs:SetText(text)
-    fs:SetJustifyH(justify or "CENTER")
+    fs:SetJustifyH("CENTER")
     table.insert(objects, fs)
     return fs
 end
@@ -80,12 +80,27 @@ local function AddButton(priest, group, x, y)
     local assigned = addon:GetAssignment(priest, group)
     btn:SetText(assigned and "X" or "")
 
-    if not addon:CanEditPriest(priest) then
+    local canEdit = addon:CanEditPriest(priest)
+
+    if not canEdit then
         btn:Disable()
-        btn:SetAlpha(0.25)
+
+        if assigned then
+            btn:SetAlpha(0.75)
+        else
+            btn:SetAlpha(0.25)
+        end
+    else
+        btn:Enable()
+        btn:SetAlpha(1)
     end
 
     btn:SetScript("OnClick", function()
+        if not addon:CanEditPriest(priest) then
+            print("|cffff0000FWC: You can only edit your own assignments unless you have raid lead or assist.|r")
+            return
+        end
+
         addon:SetAssignment(priest, group)
         addon:RefreshGridUI()
 
@@ -135,7 +150,13 @@ function addon:RefreshGridUI()
         local y = rowStartY - ((row - 1) * rowHeight)
 
         if math.abs(y) < height - 35 then
-            local template = addon:CanEditPriest(priest) and "GameFontNormal" or "GameFontDisable"
+            local template
+
+            if addon:CanEditPriest(priest) then
+                template = "GameFontNormal"
+            else
+                template = "GameFontDisable"
+            end
 
             AddText(priest, 48, y, template)
 
@@ -147,9 +168,9 @@ function addon:RefreshGridUI()
     end
 
     if addon:IsLeader() then
-        AddText("Lead/assist mode: edit everyone.", width / 2, -(height - 32), "GameFontNormal")
+        AddText("Lead/assist mode: you can edit everyone.", width / 2, -(height - 32), "GameFontNormal")
     else
-        AddText("Normal mode: edit yourself only.", width / 2, -(height - 32), "GameFontNormal")
+        AddText("Normal mode: viewing everyone, editing yourself only.", width / 2, -(height - 32), "GameFontNormal")
     end
 end
 
