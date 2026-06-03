@@ -66,6 +66,8 @@ end
 --------------------------------------------------
 
 local alertEnabled = true
+local alertTestMode = false
+local alertWatchState = {}
 
 local alertFrame = CreateFrame("Frame", "FWCAlertFrame", UIParent)
 alertFrame:SetSize(600, 80)
@@ -87,8 +89,6 @@ end
 AddResizeCorners(alertFrame, 260, 50, 1200, 220, UpdateAlertFont)
 UpdateAlertFont()
 
-local alertTestMode = false
-
 local function ShowFWCAlert(msg)
     if not alertEnabled then return end
 
@@ -105,20 +105,29 @@ end
 
 SLASH_FWCALERT1 = "/fwcalert"
 SlashCmdList["FWCALERT"] = function()
+    if alertFrame:IsShown() and alertTestMode then
+        alertTestMode = false
+        alertFrame:Hide()
+        print("|cffffff00FWC Alert test hidden.|r")
+        return
+    end
+
     alertEnabled = true
     alertTestMode = true
+
     alertFrame.text:SetText("Fear Ward fell off Testplayer")
     alertFrame:Show()
 
     FearWardCoordinatorDB = FearWardCoordinatorDB or {}
     FearWardCoordinatorDB.alertEnabled = true
 
-    print("|cff00ff00FWC Alert test shown.|r Left-drag to move. Shift + right-drag a corner to resize.")
+    print("|cff00ff00FWC Alert test shown.|r Left-drag to move. Shift + right-drag corner to resize. Run /fwcalert again to hide.")
 end
 
 SLASH_FWCALERTOFF1 = "/fwcalertoff"
 SlashCmdList["FWCALERTOFF"] = function()
     alertEnabled = false
+    alertTestMode = false
     alertFrame:Hide()
 
     FearWardCoordinatorDB = FearWardCoordinatorDB or {}
@@ -138,7 +147,7 @@ SlashCmdList["FWCALERTON"] = function()
 end
 
 --------------------------------------------------
--- MAIN SMALL BAR
+-- MAIN BAR
 --------------------------------------------------
 
 local frame = CreateFrame("Button", "FWCFrame", UIParent, "BackdropTemplate")
@@ -187,7 +196,7 @@ popout.title = popout:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 popout.title:SetPoint("CENTER", popout.TitleBg, "CENTER")
 popout.title:SetText("My Fear Ward Groups")
 
--- Escape intentionally does nothing.
+-- Escape intentionally does not close this window.
 popout:EnableKeyboard(true)
 popout:SetPropagateKeyboardInput(true)
 popout:SetScript("OnKeyDown", function(self, key)
@@ -208,12 +217,11 @@ closeButton:SetScript("OnClick", function()
 end)
 
 --------------------------------------------------
--- DATA
+-- DATA HELPERS
 --------------------------------------------------
 
 local popoutObjects = {}
 local playerRows = {}
-local lastBuffState = {}
 
 local function NormalizeName(name)
     if not name then return nil end
@@ -259,7 +267,6 @@ local function ClearPopout()
 
     wipe(popoutObjects)
     wipe(playerRows)
-    wipe(lastBuffState)
 end
 
 local function AddText(text, x, y, template)
@@ -270,6 +277,48 @@ local function AddText(text, x, y, template)
     table.insert(popoutObjects, fs)
 
     return fs
+end
+
+--------------------------------------------------
+-- ALERT WATCHER
+-- Works even if popout is closed.
+--------------------------------------------------
+
+local function RefreshFearWardAlerts()
+    if not IsInGroup() then return end
+
+    local groups = GetMyGroups()
+    local currentlyTracked = {}
+
+    for _, groupNumber in ipairs(groups) do
+        local members = addon:GetGroupMembers(groupNumber)
+
+        for _, member in ipairs(members) do
+            local key = member.name
+            currentlyTracked[key] = true
+
+            local hasBuff = false
+
+            if UnitExists(member.unit)
+                and UnitIsConnected(member.unit)
+                and not UnitIsDeadOrGhost(member.unit)
+            then
+                hasBuff = addon:GetFearWardInfo(member.unit)
+            end
+
+            if alertWatchState[key] == true and hasBuff == false then
+                ShowFWCAlert("Fear Ward fell off " .. member.name)
+            end
+
+            alertWatchState[key] = hasBuff
+        end
+    end
+
+    for key in pairs(alertWatchState) do
+        if not currentlyTracked[key] then
+            alertWatchState[key] = nil
+        end
+    end
 end
 
 --------------------------------------------------
@@ -359,23 +408,9 @@ function addon:RefreshPopoutStatusOnly()
             row.nameButton:SetAlpha(0.8)
         end
 
-        if not InCombatLockdown() then
-            if inRange then
-                row.nameButton:Enable()
-                row.statusButton:Enable()
-            else
-                row.nameButton:Disable()
-                row.statusButton:Disable()
-            end
-        end
-
-        local key = row.name
-
-        if lastBuffState[key] == true and hasBuff == false then
-            ShowFWCAlert("Fear Ward fell off " .. row.name)
-        end
-
-        lastBuffState[key] = hasBuff
+        -- Do not disable secure buttons. Range is visual/warning only.
+        row.nameButton:Enable()
+        row.statusButton:Enable()
     end
 end
 
@@ -534,6 +569,8 @@ updater:SetScript("OnUpdate", function(_, delta)
 
     if elapsed >= 1 then
         elapsed = 0
+
+        RefreshFearWardAlerts()
 
         if frame:IsShown() then
             addon:RefreshUI()
