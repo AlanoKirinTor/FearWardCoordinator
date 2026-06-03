@@ -196,14 +196,10 @@ popout.title = popout:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 popout.title:SetPoint("CENTER", popout.TitleBg, "CENTER")
 popout.title:SetText("My Fear Ward Groups")
 
--- Escape intentionally does not close this window.
-popout:EnableKeyboard(true)
-popout:SetPropagateKeyboardInput(true)
-popout:SetScript("OnKeyDown", function(self, key)
-    if key == "ESCAPE" then
-        return
-    end
-end)
+-- Important:
+-- Do NOT enable keyboard input on this frame.
+-- That keeps Escape working for normal game menus/macros/keybinds,
+-- while also preventing Escape from closing this popout.
 
 --------------------------------------------------
 -- DATA HELPERS
@@ -270,7 +266,6 @@ end
 
 --------------------------------------------------
 -- ALERT WATCHER
--- Works even if popout is closed.
 --------------------------------------------------
 
 local function RefreshFearWardAlerts()
@@ -316,17 +311,25 @@ end
 
 local function CreateFearWardButton(member, x, y, width, labelText)
     local btn = CreateFrame("Button", nil, popout, "SecureActionButtonTemplate")
-    btn:SetSize(width, 18)
+    btn:SetSize(width, 16)
     btn:SetPoint("TOPLEFT", popout, "TOPLEFT", x, y)
 
     btn:SetAttribute("type", "spell")
     btn:SetAttribute("spell", FEAR_WARD_SPELL)
     btn:SetAttribute("unit", member.unit)
 
-    btn:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+    local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetTexture("Interface\\Buttons\\WHITE8x8")
+    highlight:SetPoint("LEFT", btn, "LEFT", 0, 0)
+    highlight:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
+    highlight:SetHeight(16)
+    highlight:SetVertexColor(1, 1, 1, 0.18)
+    btn:SetHighlightTexture(highlight)
 
     local text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     text:SetPoint("LEFT", btn, "LEFT", 0, 0)
+    text:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
+    text:SetJustifyH("LEFT")
     text:SetText(labelText)
 
     btn.text = text
@@ -343,8 +346,8 @@ local function CreateFearWardButton(member, x, y, width, labelText)
 end
 
 local function AddPlayerRow(member, x, y)
-    local nameBtn = CreateFearWardButton(member, x, y, 100, member.name)
-    local statusBtn = CreateFearWardButton(member, x + 112, y, 95, "...")
+    local nameBtn = CreateFearWardButton(member, x, y, 86, member.name)
+    local statusBtn = CreateFearWardButton(member, x + 112, y, 72, "...")
 
     table.insert(playerRows, {
         name = member.name,
