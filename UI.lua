@@ -205,17 +205,6 @@ popout:SetScript("OnKeyDown", function(self, key)
     end
 end)
 
-local closeButton = CreateFrame("Button", nil, popout, "UIPanelCloseButton")
-closeButton:SetPoint("TOPRIGHT", popout, "TOPRIGHT", 0, 0)
-closeButton:SetScript("OnClick", function()
-    if InCombatLockdown() then
-        print("|cffffff00FWC: Cannot close secure popout during combat.|r")
-        return
-    end
-
-    popout:Hide()
-end)
-
 --------------------------------------------------
 -- DATA HELPERS
 --------------------------------------------------
