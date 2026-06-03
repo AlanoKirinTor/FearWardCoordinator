@@ -196,11 +196,6 @@ popout.title = popout:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 popout.title:SetPoint("CENTER", popout.TitleBg, "CENTER")
 popout.title:SetText("My Fear Ward Groups")
 
--- Important:
--- Do NOT enable keyboard input on this frame.
--- That keeps Escape working for normal game menus/macros/keybinds,
--- while also preventing Escape from closing this popout.
-
 --------------------------------------------------
 -- DATA HELPERS
 --------------------------------------------------
@@ -304,10 +299,11 @@ local function AddMainTankAlertTargets(targets)
         local unit = "raid" .. i
         local name, _, _, _, _, _, _, _, _, raidMainTankRole = GetRaidRosterInfo(i)
 
-        if name then
+        if name and UnitExists(unit) then
+            local isBlizzardMainTank = GetPartyAssignment and GetPartyAssignment("MAINTANK", unit)
             local assignedRole = UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit) or "NONE"
 
-            if raidMainTankRole == "MAINTANK" or assignedRole == "TANK" then
+            if isBlizzardMainTank or raidMainTankRole == "MAINTANK" or assignedRole == "TANK" then
                 AddAlertWatchTarget(targets, name, unit, true)
             end
         end
@@ -448,7 +444,6 @@ function addon:RefreshPopoutStatusOnly()
             row.nameButton:SetAlpha(0.8)
         end
 
-        -- Do not disable secure buttons. Range is visual/warning only.
         row.nameButton:Enable()
         row.statusButton:Enable()
     end
