@@ -115,7 +115,7 @@ SlashCmdList["FWCALERT"] = function()
     alertEnabled = true
     alertTestMode = true
 
-    alertFrame.text:SetText("Fear Ward fell off Testplayer")
+    alertFrame.text:SetText("TANK! Fear Ward fell off Testtank")
     alertFrame:Show()
 
     FearWardCoordinatorDB = FearWardCoordinatorDB or {}
@@ -268,34 +268,82 @@ end
 -- ALERT WATCHER
 --------------------------------------------------
 
-local function RefreshFearWardAlerts()
-    if not IsInGroup() then return end
+local function AddAlertWatchTarget(targets, name, unit, isTank)
+    if not name or not unit then return end
 
+    local key = NormalizeName(name)
+    if not key then return end
+
+    if not targets[key] then
+        targets[key] = {
+            name = name,
+            unit = unit,
+            isTank = isTank or false
+        }
+    elseif isTank then
+        targets[key].isTank = true
+    end
+end
+
+local function AddAssignedGroupAlertTargets(targets)
     local groups = GetMyGroups()
-    local currentlyTracked = {}
 
     for _, groupNumber in ipairs(groups) do
         local members = addon:GetGroupMembers(groupNumber)
 
         for _, member in ipairs(members) do
-            local key = member.name
-            currentlyTracked[key] = true
-
-            local hasBuff = false
-
-            if UnitExists(member.unit)
-                and UnitIsConnected(member.unit)
-                and not UnitIsDeadOrGhost(member.unit)
-            then
-                hasBuff = addon:GetFearWardInfo(member.unit)
-            end
-
-            if alertWatchState[key] == true and hasBuff == false then
-                ShowFWCAlert("Fear Ward fell off " .. member.name)
-            end
-
-            alertWatchState[key] = hasBuff
+            AddAlertWatchTarget(targets, member.name, member.unit, false)
         end
+    end
+end
+
+local function AddMainTankAlertTargets(targets)
+    if not IsInRaid() then return end
+
+    for i = 1, 40 do
+        local unit = "raid" .. i
+        local name, _, _, _, _, _, _, _, _, raidMainTankRole = GetRaidRosterInfo(i)
+
+        if name then
+            local assignedRole = UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit) or "NONE"
+
+            if raidMainTankRole == "MAINTANK" or assignedRole == "TANK" then
+                AddAlertWatchTarget(targets, name, unit, true)
+            end
+        end
+    end
+end
+
+local function RefreshFearWardAlerts()
+    if not IsInGroup() then return end
+
+    local targets = {}
+    local currentlyTracked = {}
+
+    AddAssignedGroupAlertTargets(targets)
+    AddMainTankAlertTargets(targets)
+
+    for key, target in pairs(targets) do
+        currentlyTracked[key] = true
+
+        local hasBuff = false
+
+        if UnitExists(target.unit)
+            and UnitIsConnected(target.unit)
+            and not UnitIsDeadOrGhost(target.unit)
+        then
+            hasBuff = addon:GetFearWardInfo(target.unit)
+        end
+
+        if alertWatchState[key] == true and hasBuff == false then
+            if target.isTank then
+                ShowFWCAlert("TANK! Fear Ward fell off " .. target.name)
+            else
+                ShowFWCAlert("Fear Ward fell off " .. target.name)
+            end
+        end
+
+        alertWatchState[key] = hasBuff
     end
 
     for key in pairs(alertWatchState) do
