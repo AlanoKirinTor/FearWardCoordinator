@@ -44,10 +44,7 @@ local function AddResizeCorners(targetFrame, minW, minH, maxW, maxH, onResizeDon
         grip:RegisterForClicks("RightButtonDown", "RightButtonUp")
 
         grip:SetScript("OnMouseDown", function()
-            if InCombatLockdown() then
-                return
-            end
-
+            if InCombatLockdown() then return end
             if IsShiftKeyDown() and IsMouseButtonDown("RightButton") then
                 targetFrame:StartSizing(data.cursor)
             end
@@ -55,7 +52,6 @@ local function AddResizeCorners(targetFrame, minW, minH, maxW, maxH, onResizeDon
 
         grip:SetScript("OnMouseUp", function()
             targetFrame:StopMovingOrSizing()
-
             if onResizeDone then
                 onResizeDone()
             end
@@ -92,9 +88,7 @@ AddResizeCorners(alertFrame, 260, 50, 1200, 220, UpdateAlertFont)
 UpdateAlertFont()
 
 local function ShowFWCAlert(msg)
-    if not alertEnabled then
-        return
-    end
+    if not alertEnabled then return end
 
     alertTestMode = false
     alertFrame.text:SetText(msg)
@@ -118,6 +112,7 @@ SlashCmdList["FWCALERT"] = function()
 
     alertEnabled = true
     alertTestMode = true
+
     alertFrame.text:SetText("TANK! Fear Ward missing on Testtank")
     alertFrame:Show()
 
@@ -167,12 +162,7 @@ frame:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8x8",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
     edgeSize = 10,
-    insets = {
-        left = 2,
-        right = 2,
-        top = 2,
-        bottom = 2
-    }
+    insets = { left = 2, right = 2, top = 2, bottom = 2 }
 })
 
 frame:SetBackdropColor(0, 0.35, 0, 0.9)
@@ -214,10 +204,7 @@ local popoutObjects = {}
 local playerRows = {}
 
 local function NormalizeName(name)
-    if not name then
-        return nil
-    end
-
+    if not name then return nil end
     return Ambiguate(name, "short")
 end
 
@@ -242,26 +229,28 @@ local function GetMyGroups()
 end
 
 local function IsUnitInFearWardRange(unit)
-    if not unit or not UnitExists(unit) then
-        return false
-    end
-
-    if UnitIsDeadOrGhost(unit) then
-        return false
-    end
-
-    if not UnitIsConnected(unit) then
-        return false
-    end
+    if not unit or not UnitExists(unit) then return false end
+    if UnitIsDeadOrGhost(unit) then return false end
+    if not UnitIsConnected(unit) then return false end
 
     local inRange = IsSpellInRange(FEAR_WARD_SPELL, unit)
     return inRange == 1
 end
 
+local function CanSafelyCheckFearWard(unit)
+    if not unit or not UnitExists(unit) then return false end
+    if UnitIsDeadOrGhost(unit) then return false end
+    if not UnitIsConnected(unit) then return false end
+
+    local inRange = IsSpellInRange(FEAR_WARD_SPELL, unit)
+
+    -- Only scan/alert when definitely in Fear Ward range.
+    -- This prevents reload/relog/out-of-range false alerts.
+    return inRange == 1
+end
+
 local function ClearPopout()
-    if InCombatLockdown() then
-        return
-    end
+    if InCombatLockdown() then return end
 
     for _, obj in pairs(popoutObjects) do
         obj:Hide()
@@ -277,7 +266,6 @@ local function AddText(text, x, y, template)
     fs:SetText(text)
 
     table.insert(popoutObjects, fs)
-
     return fs
 end
 
@@ -286,15 +274,10 @@ end
 --------------------------------------------------
 
 local function AddAlertWatchTarget(targets, name, unit, isTank)
-    if not name or not unit then
-        return
-    end
+    if not name or not unit then return end
 
     local key = NormalizeName(name)
-
-    if not key then
-        return
-    end
+    if not key then return end
 
     if not targets[key] then
         targets[key] = {
@@ -320,9 +303,7 @@ local function AddAssignedGroupAlertTargets(targets)
 end
 
 local function AddMainTankAlertTargets(targets)
-    if not IsInRaid() then
-        return
-    end
+    if not IsInRaid() then return end
 
     for i = 1, 40 do
         local unit = "raid" .. i
@@ -345,6 +326,8 @@ local function RefreshFearWardAlerts()
         return
     end
 
+    if not alertEnabled then return end
+
     local targets = {}
     local currentlyTracked = {}
 
@@ -354,11 +337,7 @@ local function RefreshFearWardAlerts()
     for key, target in pairs(targets) do
         currentlyTracked[key] = true
 
-        -- Important:
-        -- If the unit is out of range, invisible, offline, dead, or unknown,
-        -- do NOT update alertWatchState and do NOT alert.
-        -- This prevents false alerts on reload/relog/range issues.
-        if addon.CanSafelyCheckFearWard and addon:CanSafelyCheckFearWard(target.unit) then
+        if CanSafelyCheckFearWard(target.unit) then
             local hasBuff = addon:GetFearWardInfo(target.unit)
 
             if hasBuff then
@@ -392,6 +371,7 @@ local function CreateFearWardButton(member, x, y, width, labelText)
     local btn = CreateFrame("Button", nil, popout, "SecureActionButtonTemplate")
     btn:SetSize(width, 16)
     btn:SetPoint("TOPLEFT", popout, "TOPLEFT", x, y)
+
     btn:SetAttribute("type", "spell")
     btn:SetAttribute("spell", FEAR_WARD_SPELL)
     btn:SetAttribute("unit", member.unit)
@@ -419,7 +399,6 @@ local function CreateFearWardButton(member, x, y, width, labelText)
     end)
 
     table.insert(popoutObjects, btn)
-
     return btn
 end
 
@@ -496,7 +475,6 @@ function addon:BuildPopout()
     ClearPopout()
 
     local groups = GetMyGroups()
-
     popout.title:SetText("My Fear Ward Groups")
 
     if #groups == 0 then
@@ -569,9 +547,7 @@ frame:SetScript("OnClick", TogglePopout)
 --------------------------------------------------
 
 function addon:RefreshUI()
-    if not frame:IsShown() then
-        return
-    end
+    if not frame:IsShown() then return end
 
     if addon.ScanRaid then
         addon:ScanRaid()
@@ -616,7 +592,6 @@ end
 
 local loadFrame = CreateFrame("Frame")
 loadFrame:RegisterEvent("PLAYER_LOGIN")
-
 loadFrame:SetScript("OnEvent", function()
     FearWardCoordinatorDB = FearWardCoordinatorDB or {}
 
@@ -654,7 +629,6 @@ end)
 
 local combatFrame = CreateFrame("Frame")
 combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-
 combatFrame:SetScript("OnEvent", function()
     if popout:IsShown() then
         addon:BuildPopout()
