@@ -44,7 +44,9 @@ local function AddResizeCorners(targetFrame, minW, minH, maxW, maxH, onResizeDon
         grip:RegisterForClicks("RightButtonDown", "RightButtonUp")
 
         grip:SetScript("OnMouseDown", function()
-            if InCombatLockdown() then return end
+            if InCombatLockdown() then
+                return
+            end
 
             if IsShiftKeyDown() and IsMouseButtonDown("RightButton") then
                 targetFrame:StartSizing(data.cursor)
@@ -90,7 +92,9 @@ AddResizeCorners(alertFrame, 260, 50, 1200, 220, UpdateAlertFont)
 UpdateAlertFont()
 
 local function ShowFWCAlert(msg)
-    if not alertEnabled then return end
+    if not alertEnabled then
+        return
+    end
 
     alertTestMode = false
     alertFrame.text:SetText(msg)
@@ -114,14 +118,15 @@ SlashCmdList["FWCALERT"] = function()
 
     alertEnabled = true
     alertTestMode = true
-
-    alertFrame.text:SetText("TANK! Fear Ward fell off Testtank")
+    alertFrame.text:SetText("TANK! Fear Ward missing on Testtank")
     alertFrame:Show()
 
     FearWardCoordinatorDB = FearWardCoordinatorDB or {}
     FearWardCoordinatorDB.alertEnabled = true
 
-    print("|cff00ff00FWC Alert test shown.|r Left-drag to move. Shift + right-drag corner to resize. Run /fwcalert again to hide.")
+    print("|cff00ff00FWC Alert test shown.|r Left-drag to move.")
+    print("|cff00ff00Shift + right-drag corner to resize.|r")
+    print("|cff00ff00Run /fwcalert again to hide.|r")
 end
 
 SLASH_FWCALERTOFF1 = "/fwcalertoff"
@@ -162,10 +167,15 @@ frame:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8x8",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
     edgeSize = 10,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 }
+    insets = {
+        left = 2,
+        right = 2,
+        top = 2,
+        bottom = 2
+    }
 })
-frame:SetBackdropColor(0, 0.35, 0, 0.9)
 
+frame:SetBackdropColor(0, 0.35, 0, 0.9)
 addon.uiFrame = frame
 
 local icon = frame:CreateTexture(nil, "ARTWORK")
@@ -204,7 +214,10 @@ local popoutObjects = {}
 local playerRows = {}
 
 local function NormalizeName(name)
-    if not name then return nil end
+    if not name then
+        return nil
+    end
+
     return Ambiguate(name, "short")
 end
 
@@ -229,17 +242,26 @@ local function GetMyGroups()
 end
 
 local function IsUnitInFearWardRange(unit)
-    if not UnitExists(unit) then return false end
-    if UnitIsDeadOrGhost(unit) then return false end
-    if not UnitIsConnected(unit) then return false end
+    if not unit or not UnitExists(unit) then
+        return false
+    end
+
+    if UnitIsDeadOrGhost(unit) then
+        return false
+    end
+
+    if not UnitIsConnected(unit) then
+        return false
+    end
 
     local inRange = IsSpellInRange(FEAR_WARD_SPELL, unit)
-
     return inRange == 1
 end
 
 local function ClearPopout()
-    if InCombatLockdown() then return end
+    if InCombatLockdown() then
+        return
+    end
 
     for _, obj in pairs(popoutObjects) do
         obj:Hide()
@@ -264,10 +286,15 @@ end
 --------------------------------------------------
 
 local function AddAlertWatchTarget(targets, name, unit, isTank)
-    if not name or not unit then return end
+    if not name or not unit then
+        return
+    end
 
     local key = NormalizeName(name)
-    if not key then return end
+
+    if not key then
+        return
+    end
 
     if not targets[key] then
         targets[key] = {
@@ -293,7 +320,9 @@ local function AddAssignedGroupAlertTargets(targets)
 end
 
 local function AddMainTankAlertTargets(targets)
-    if not IsInRaid() then return end
+    if not IsInRaid() then
+        return
+    end
 
     for i = 1, 40 do
         local unit = "raid" .. i
@@ -311,7 +340,10 @@ local function AddMainTankAlertTargets(targets)
 end
 
 local function RefreshFearWardAlerts()
-    if not IsInGroup() then return end
+    if not IsInGroup() then
+        wipe(alertWatchState)
+        return
+    end
 
     local targets = {}
     local currentlyTracked = {}
@@ -322,24 +354,27 @@ local function RefreshFearWardAlerts()
     for key, target in pairs(targets) do
         currentlyTracked[key] = true
 
-        local hasBuff = false
+        -- Important:
+        -- If the unit is out of range, invisible, offline, dead, or unknown,
+        -- do NOT update alertWatchState and do NOT alert.
+        -- This prevents false alerts on reload/relog/range issues.
+        if addon.CanSafelyCheckFearWard and addon:CanSafelyCheckFearWard(target.unit) then
+            local hasBuff = addon:GetFearWardInfo(target.unit)
 
-        if UnitExists(target.unit)
-            and UnitIsConnected(target.unit)
-            and not UnitIsDeadOrGhost(target.unit)
-        then
-            hasBuff = addon:GetFearWardInfo(target.unit)
-        end
-
-        if alertWatchState[key] == true and hasBuff == false then
-            if target.isTank then
-                ShowFWCAlert("TANK! Fear Ward fell off " .. target.name)
+            if hasBuff then
+                alertWatchState[key] = true
             else
-                ShowFWCAlert("Fear Ward fell off " .. target.name)
+                if alertWatchState[key] == true then
+                    if target.isTank then
+                        ShowFWCAlert("TANK! Fear Ward missing on " .. target.name)
+                    else
+                        ShowFWCAlert("Fear Ward missing on " .. target.name)
+                    end
+                end
+
+                alertWatchState[key] = false
             end
         end
-
-        alertWatchState[key] = hasBuff
     end
 
     for key in pairs(alertWatchState) do
@@ -357,7 +392,6 @@ local function CreateFearWardButton(member, x, y, width, labelText)
     local btn = CreateFrame("Button", nil, popout, "SecureActionButtonTemplate")
     btn:SetSize(width, 16)
     btn:SetPoint("TOPLEFT", popout, "TOPLEFT", x, y)
-
     btn:SetAttribute("type", "spell")
     btn:SetAttribute("spell", FEAR_WARD_SPELL)
     btn:SetAttribute("unit", member.unit)
@@ -495,7 +529,6 @@ function addon:BuildPopout()
 
     local neededHeight = 70 + (line * 19)
     neededHeight = math.max(120, math.min(neededHeight, 650))
-
     popout:SetHeight(neededHeight)
 
     addon:RefreshPopoutStatusOnly()
@@ -536,7 +569,9 @@ frame:SetScript("OnClick", TogglePopout)
 --------------------------------------------------
 
 function addon:RefreshUI()
-    if not frame:IsShown() then return end
+    if not frame:IsShown() then
+        return
+    end
 
     if addon.ScanRaid then
         addon:ScanRaid()
