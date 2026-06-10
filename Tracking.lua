@@ -1,14 +1,17 @@
 local addonName, addon = ...
 
-local FEAR_WARD = GetSpellInfo(6346) or "Fear Ward"
+local FEAR_WARD_NAME = GetSpellInfo(6346) or "Fear Ward"
 
 function addon:GetGroupMembers(groupNumber)
     local members = {}
 
-    if not IsInRaid() then return members end
+    if not IsInRaid() then
+        return members
+    end
 
     for i = 1, 40 do
         local name, _, subgroup = GetRaidRosterInfo(i)
+
         if name and subgroup == groupNumber then
             table.insert(members, {
                 name = name,
@@ -22,16 +25,21 @@ function addon:GetGroupMembers(groupNumber)
 end
 
 function addon:GetFearWardInfo(unit)
-    if not UnitExists(unit) then
+    if not unit or not UnitExists(unit) then
         return false, 0
     end
 
     for i = 1, 40 do
         local name, _, _, _, duration, expirationTime = UnitBuff(unit, i)
 
-        if not name then break end
+        if not name then
+            break
+        end
 
-        if name == FEAR_WARD or name == "Fear Ward" then
+        -- IMPORTANT:
+        -- Check by buff NAME only.
+        -- This prevents false alerts when another priest's Fear Ward overwrites yours.
+        if name == FEAR_WARD_NAME or name == "Fear Ward" then
             local remaining = 0
 
             if expirationTime and expirationTime > 0 then
@@ -43,6 +51,35 @@ function addon:GetFearWardInfo(unit)
     end
 
     return false, 0
+end
+
+function addon:CanSafelyCheckFearWard(unit)
+    if not unit or not UnitExists(unit) then
+        return false
+    end
+
+    if UnitIsDeadOrGhost(unit) then
+        return false
+    end
+
+    if not UnitIsConnected(unit) then
+        return false
+    end
+
+    -- If the game cannot see the unit, do NOT treat that as missing Fear Ward.
+    if UnitIsVisible and not UnitIsVisible(unit) then
+        return false
+    end
+
+    -- Only alert when they are actually in Fear Ward range.
+    -- 1 = in range, 0 = out of range, nil = unknown.
+    local inRange = IsSpellInRange(FEAR_WARD_NAME, unit)
+
+    if inRange ~= 1 then
+        return false
+    end
+
+    return true
 end
 
 function addon:FormatTime(seconds)
