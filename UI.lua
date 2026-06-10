@@ -242,11 +242,11 @@ local function CanSafelyCheckFearWard(unit)
     if UnitIsDeadOrGhost(unit) then return false end
     if not UnitIsConnected(unit) then return false end
 
-    local inRange = IsSpellInRange(FEAR_WARD_SPELL, unit)
-
-    -- Only scan/alert when definitely in Fear Ward range.
-    -- This prevents reload/relog/out-of-range false alerts.
-    return inRange == 1
+    -- IMPORTANT:
+    -- Do not require spell range here.
+    -- Buff scanning can still work on raid members outside spell range,
+    -- and requiring range was stopping open-world raid alerts.
+    return true
 end
 
 local function ClearPopout()
@@ -281,7 +281,7 @@ local function AddAlertWatchTarget(targets, name, unit, isTank)
 
     if not targets[key] then
         targets[key] = {
-            name = name,
+            name = NormalizeName(name),
             unit = unit,
             isTank = isTank or false
         }
@@ -307,14 +307,31 @@ local function AddMainTankAlertTargets(targets)
 
     for i = 1, 40 do
         local unit = "raid" .. i
-        local name, _, _, _, _, _, _, _, _, raidMainTankRole = GetRaidRosterInfo(i)
+        local name = GetRaidRosterInfo(i)
 
         if name and UnitExists(unit) then
-            local isBlizzardMainTank = GetPartyAssignment and GetPartyAssignment("MAINTANK", unit)
+            local shortName = NormalizeName(name)
+
+            local isMainTank = false
+
+            if GetPartyAssignment then
+                if GetPartyAssignment("MAINTANK", unit) then
+                    isMainTank = true
+                end
+
+                if not isMainTank and GetPartyAssignment("MAINTANK", name) then
+                    isMainTank = true
+                end
+
+                if not isMainTank and shortName and GetPartyAssignment("MAINTANK", shortName) then
+                    isMainTank = true
+                end
+            end
+
             local assignedRole = UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit) or "NONE"
 
-            if isBlizzardMainTank or raidMainTankRole == "MAINTANK" or assignedRole == "TANK" then
-                AddAlertWatchTarget(targets, name, unit, true)
+            if isMainTank or assignedRole == "TANK" then
+                AddAlertWatchTarget(targets, shortName or name, unit, true)
             end
         end
     end
@@ -340,18 +357,42 @@ local function RefreshFearWardAlerts()
         if CanSafelyCheckFearWard(target.unit) then
             local hasBuff = addon:GetFearWardInfo(target.unit)
 
+            if alertWatchState[key] == nil then
+                alertWatchState[key] = {
+                    hadBuff = hasBuff and true or false,
+                    alertedMissing = false,
+                    seen = true
+                }
+            end
+
+            local state = alertWatchState[key]
+
             if hasBuff then
-                alertWatchState[key] = true
+                state.hadBuff = true
+                state.alertedMissing = false
+                state.seen = true
             else
-                if alertWatchState[key] == true then
+                -- Tanks should alert even if they are already missing when first detected.
+                -- Non-tanks only alert after we previously saw Fear Ward on them.
+                local shouldAlert =
+                    not state.alertedMissing and
+                    (
+                        target.isTank or
+                        state.hadBuff
+                    )
+
+                if shouldAlert then
                     if target.isTank then
                         ShowFWCAlert("TANK! Fear Ward missing on " .. target.name)
                     else
                         ShowFWCAlert("Fear Ward missing on " .. target.name)
                     end
+
+                    state.alertedMissing = true
                 end
 
-                alertWatchState[key] = false
+                state.hadBuff = false
+                state.seen = true
             end
         end
     end
