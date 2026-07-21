@@ -1,6 +1,132 @@
 local addonName, addon = ...
 
-local FEAR_WARD_NAME = GetSpellInfo(6346) or "Fear Ward"
+local FEAR_WARD_SPELL_ID = 6346
+
+local function GetSpellNameCompat(spellID)
+    if C_Spell and C_Spell.GetSpellName then
+        return C_Spell.GetSpellName(spellID)
+    end
+
+    if C_Spell and C_Spell.GetSpellInfo then
+        local spellInfo = C_Spell.GetSpellInfo(spellID)
+
+        if spellInfo then
+            return spellInfo.name
+        end
+    end
+
+    if GetSpellInfo then
+        return GetSpellInfo(spellID)
+    end
+
+    return nil
+end
+
+local FEAR_WARD_NAME =
+    GetSpellNameCompat(FEAR_WARD_SPELL_ID)
+    or "Fear Ward"
+
+local function GetHelpfulAuraByIndex(unit, index)
+    if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+        return C_UnitAuras.GetAuraDataByIndex(
+            unit,
+            index,
+            "HELPFUL"
+        )
+    end
+
+    if UnitBuff then
+        local name,
+            icon,
+            count,
+            debuffType,
+            duration,
+            expirationTime,
+            source,
+            isStealable,
+            nameplateShowPersonal,
+            spellId = UnitBuff(unit, index)
+
+        if not name then
+            return nil
+        end
+
+        return {
+            name = name,
+            icon = icon,
+            applications = count,
+            dispelName = debuffType,
+            duration = duration,
+            expirationTime = expirationTime,
+            sourceUnit = source,
+            isStealable = isStealable,
+            nameplateShowPersonal = nameplateShowPersonal,
+            spellId = spellId,
+        }
+    end
+
+    return nil
+end
+
+local function IsSpellInRangeCompat(
+    spellID,
+    spellName,
+    unit
+)
+    if C_Spell and C_Spell.IsSpellInRange then
+        local result =
+            C_Spell.IsSpellInRange(spellID, unit)
+
+        if result == nil and spellName then
+            result =
+                C_Spell.IsSpellInRange(
+                    spellName,
+                    unit
+                )
+        end
+
+        if result == true or result == 1 then
+            return 1
+        end
+
+        if result == false or result == 0 then
+            return 0
+        end
+
+        return nil
+    end
+
+    if IsSpellInRange then
+        return IsSpellInRange(
+            spellName or spellID,
+            unit
+        )
+    end
+
+    return nil
+end
+
+function addon:GetFearWardSpellID()
+    return FEAR_WARD_SPELL_ID
+end
+
+function addon:GetFearWardSpellName()
+    return FEAR_WARD_NAME
+end
+
+function addon:IsFearWardInRange(unit)
+    if not unit or not UnitExists(unit) then
+        return false
+    end
+
+    local result = IsSpellInRangeCompat(
+        FEAR_WARD_SPELL_ID,
+        FEAR_WARD_NAME,
+        unit
+    )
+
+    return result == 1
+end
 
 function addon:GetGroupMembers(groupNumber)
     local members = {}
@@ -10,13 +136,14 @@ function addon:GetGroupMembers(groupNumber)
     end
 
     for i = 1, 40 do
-        local name, _, subgroup = GetRaidRosterInfo(i)
+        local name, _, subgroup =
+            GetRaidRosterInfo(i)
 
         if name and subgroup == groupNumber then
             table.insert(members, {
                 name = name,
                 unit = "raid" .. i,
-                group = subgroup
+                group = subgroup,
             })
         end
     end
@@ -30,20 +157,27 @@ function addon:GetFearWardInfo(unit)
     end
 
     for i = 1, 40 do
-        local name, _, _, _, duration, expirationTime = UnitBuff(unit, i)
+        local aura =
+            GetHelpfulAuraByIndex(unit, i)
 
-        if not name then
+        if not aura then
             break
         end
 
-        -- IMPORTANT:
-        -- Check by buff NAME only.
-        -- This prevents false alerts when another priest's Fear Ward overwrites yours.
-        if name == FEAR_WARD_NAME or name == "Fear Ward" then
+        local auraSpellID =
+            aura.spellId or aura.spellID
+
+        if auraSpellID == FEAR_WARD_SPELL_ID
+            or aura.name == FEAR_WARD_NAME
+            or aura.name == "Fear Ward"
+        then
             local remaining = 0
 
-            if expirationTime and expirationTime > 0 then
-                remaining = expirationTime - GetTime()
+            if aura.expirationTime
+                and aura.expirationTime > 0
+            then
+                remaining =
+                    aura.expirationTime - GetTime()
             end
 
             return true, math.max(0, remaining)
@@ -66,20 +200,13 @@ function addon:CanSafelyCheckFearWard(unit)
         return false
     end
 
-    -- If the game cannot see the unit, do NOT treat that as missing Fear Ward.
-    if UnitIsVisible and not UnitIsVisible(unit) then
+    if UnitIsVisible
+        and not UnitIsVisible(unit)
+    then
         return false
     end
 
-    -- Only alert when they are actually in Fear Ward range.
-    -- 1 = in range, 0 = out of range, nil = unknown.
-    local inRange = IsSpellInRange(FEAR_WARD_NAME, unit)
-
-    if inRange ~= 1 then
-        return false
-    end
-
-    return true
+    return self:IsFearWardInRange(unit)
 end
 
 function addon:FormatTime(seconds)
@@ -87,12 +214,22 @@ function addon:FormatTime(seconds)
         return "active"
     end
 
-    local min = math.floor(seconds / 60)
-    local sec = math.floor(seconds % 60)
+    local minutes =
+        math.floor(seconds / 60)
 
-    if min > 0 then
-        return string.format("%dm %02ds", min, sec)
-    else
-        return string.format("%ds", sec)
+    local remainingSeconds =
+        math.floor(seconds % 60)
+
+    if minutes > 0 then
+        return string.format(
+            "%dm %02ds",
+            minutes,
+            remainingSeconds
+        )
     end
+
+    return string.format(
+        "%ds",
+        remainingSeconds
+    )
 end
