@@ -1,13 +1,13 @@
 ## Interface: 11509
 ## Title: FearWardCoordinator
-## Notes: Fear Ward assignment system for Season of Discovery
+## Notes: Fear Ward assignments, alerts, tracking, and secure click-to-cast popout.
 ## Author: Alano
-## Version: 1.2.0
+## Version: 2.0.0
 ## SavedVariables: FearWardCoordinatorDB
 
 Core.lua
+Tracking.lua
 Assignments.lua
 Communications.lua
-Tracking.lua
 UI.lua
 GridUI.lua
