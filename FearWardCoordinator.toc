@@ -1,8 +1,8 @@
-## Interface: 11507
+## Interface: 11509
 ## Title: FearWardCoordinator
 ## Notes: Fear Ward assignment system for Season of Discovery
-## Author: You
-## Version: 1.1
+## Author: Alano
+## Version: 1.2.0
 ## SavedVariables: FearWardCoordinatorDB
 
 Core.lua
