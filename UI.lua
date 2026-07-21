@@ -1,223 +1,605 @@
 local addonName, addon = ...
 
 addon.state = addon.state or {}
-addon.state.priests = addon.state.priests or {}
-addon.state.assignments = addon.state.assignments or {}
+addon.state.priests =
+    addon.state.priests or {}
+addon.state.assignments =
+    addon.state.assignments or {}
 
-local FEAR_WARD_SPELL = GetSpellInfo(6346) or "Fear Ward"
+local FEAR_WARD_SPELL_ID =
+    addon.GetFearWardSpellID
+    and addon:GetFearWardSpellID()
+    or 6346
 
---------------------------------------------------
--- MOVING / RESIZING HELPERS
---------------------------------------------------
+local FEAR_WARD_SPELL_NAME =
+    addon.GetFearWardSpellName
+    and addon:GetFearWardSpellName()
+    or "Fear Ward"
 
-local function MakeMovable(f)
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
+local function EnsureDB()
+    FearWardCoordinatorDB =
+        FearWardCoordinatorDB or {}
 
-    f:SetScript("OnDragStart", function(self)
-        if not InCombatLockdown() then
-            self:StartMoving()
-        end
-    end)
+    FearWardCoordinatorDB.positions =
+        FearWardCoordinatorDB.positions or {}
 
-    f:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-    end)
+    return FearWardCoordinatorDB
 end
 
-local function AddResizeCorners(targetFrame, minW, minH, maxW, maxH, onResizeDone)
+local function SaveFramePosition(frame, key)
+    if not frame or not key then
+        return
+    end
+
+    local point,
+        _,
+        relativePoint,
+        x,
+        y = frame:GetPoint(1)
+
+    local db = EnsureDB()
+
+    db.positions[key] =
+        db.positions[key] or {}
+
+    db.positions[key].point = point
+    db.positions[key].relativePoint =
+        relativePoint
+    db.positions[key].x = x
+    db.positions[key].y = y
+    db.positions[key].width =
+        frame:GetWidth()
+    db.positions[key].height =
+        frame:GetHeight()
+    db.positions[key].scale =
+        frame:GetScale()
+end
+
+local function RestoreFramePosition(
+    frame,
+    key,
+    defaultPoint,
+    defaultRelativePoint,
+    defaultX,
+    defaultY
+)
+    local db = EnsureDB()
+    local saved = db.positions[key]
+
+    frame:ClearAllPoints()
+
+    if saved then
+        frame:SetPoint(
+            saved.point or defaultPoint,
+            UIParent,
+            saved.relativePoint
+                or defaultRelativePoint,
+            saved.x or defaultX,
+            saved.y or defaultY
+        )
+
+        if saved.width and saved.height then
+            frame:SetSize(
+                saved.width,
+                saved.height
+            )
+        end
+
+        if saved.scale then
+            frame:SetScale(saved.scale)
+        end
+    else
+        frame:SetPoint(
+            defaultPoint,
+            UIParent,
+            defaultRelativePoint,
+            defaultX,
+            defaultY
+        )
+    end
+
+    frame:SetUserPlaced(true)
+end
+
+local function MakeMovable(frame, key)
+    frame:SetMovable(true)
+    frame:SetClampedToScreen(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+
+    frame:SetScript(
+        "OnDragStart",
+        function(self)
+            if not InCombatLockdown() then
+                self:StartMoving()
+            end
+        end
+    )
+
+    frame:SetScript(
+        "OnDragStop",
+        function(self)
+            self:StopMovingOrSizing()
+            SaveFramePosition(self, key)
+        end
+    )
+end
+
+local function AddResizeCorners(
+    targetFrame,
+    key,
+    minW,
+    minH,
+    maxW,
+    maxH,
+    onResizeDone
+)
     targetFrame:SetResizable(true)
-    targetFrame:SetResizeBounds(minW, minH, maxW, maxH)
+
+    if targetFrame.SetResizeBounds then
+        targetFrame:SetResizeBounds(
+            minW,
+            minH,
+            maxW,
+            maxH
+        )
+    else
+        targetFrame:SetMinResize(
+            minW,
+            minH
+        )
+
+        targetFrame:SetMaxResize(
+            maxW,
+            maxH
+        )
+    end
 
     local corners = {
-        { point = "TOPLEFT", cursor = "TOPLEFT" },
-        { point = "TOPRIGHT", cursor = "TOPRIGHT" },
-        { point = "BOTTOMLEFT", cursor = "BOTTOMLEFT" },
-        { point = "BOTTOMRIGHT", cursor = "BOTTOMRIGHT" },
+        {
+            point = "TOPLEFT",
+            cursor = "TOPLEFT",
+        },
+        {
+            point = "TOPRIGHT",
+            cursor = "TOPRIGHT",
+        },
+        {
+            point = "BOTTOMLEFT",
+            cursor = "BOTTOMLEFT",
+        },
+        {
+            point = "BOTTOMRIGHT",
+            cursor = "BOTTOMRIGHT",
+        },
     }
 
     for _, data in ipairs(corners) do
-        local grip = CreateFrame("Button", nil, targetFrame)
+        local grip = CreateFrame(
+            "Button",
+            nil,
+            targetFrame
+        )
+
         grip:SetSize(18, 18)
-        grip:SetPoint(data.point, targetFrame, data.point, 0, 0)
-        grip:RegisterForClicks("RightButtonDown", "RightButtonUp")
 
-        grip:SetScript("OnMouseDown", function()
-            if InCombatLockdown() then return end
-            if IsShiftKeyDown() and IsMouseButtonDown("RightButton") then
-                targetFrame:StartSizing(data.cursor)
-            end
-        end)
+        grip:SetPoint(
+            data.point,
+            targetFrame,
+            data.point,
+            0,
+            0
+        )
 
-        grip:SetScript("OnMouseUp", function()
-            targetFrame:StopMovingOrSizing()
-            if onResizeDone then
-                onResizeDone()
+        grip:RegisterForClicks(
+            "RightButtonDown",
+            "RightButtonUp"
+        )
+
+        grip:SetScript(
+            "OnMouseDown",
+            function()
+                if InCombatLockdown() then
+                    return
+                end
+
+                if IsShiftKeyDown()
+                    and IsMouseButtonDown(
+                        "RightButton"
+                    )
+                then
+                    targetFrame:StartSizing(
+                        data.cursor
+                    )
+                end
             end
-        end)
+        )
+
+        grip:SetScript(
+            "OnMouseUp",
+            function()
+                targetFrame:
+                    StopMovingOrSizing()
+
+                SaveFramePosition(
+                    targetFrame,
+                    key
+                )
+
+                if onResizeDone then
+                    onResizeDone()
+                end
+            end
+        )
     end
 end
-
---------------------------------------------------
--- ALERT FRAME
---------------------------------------------------
 
 local alertEnabled = true
 local alertTestMode = false
 local alertWatchState = {}
+local alertHideGeneration = 0
 
-local alertFrame = CreateFrame("Frame", "FWCAlertFrame", UIParent)
+local alertFrame = CreateFrame(
+    "Frame",
+    "FWCAlertFrame",
+    UIParent
+)
+
 alertFrame:SetSize(600, 80)
-alertFrame:SetPoint("TOP", UIParent, "TOP", 0, -180)
+alertFrame:SetFrameStrata("HIGH")
+alertFrame:SetClampedToScreen(true)
 alertFrame:Hide()
 
-MakeMovable(alertFrame)
+RestoreFramePosition(
+    alertFrame,
+    "alert",
+    "TOP",
+    "TOP",
+    0,
+    -180
+)
 
-alertFrame.text = alertFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+MakeMovable(alertFrame, "alert")
+
+alertFrame.text =
+    alertFrame:CreateFontString(
+        nil,
+        "OVERLAY",
+        "GameFontNormalHuge"
+    )
+
 alertFrame.text:SetPoint("CENTER")
-alertFrame.text:SetTextColor(1, 0.15, 0.15, 1)
+
+alertFrame.text:SetTextColor(
+    1,
+    0.15,
+    0.15,
+    1
+)
 
 local function UpdateAlertFont()
-    local h = alertFrame:GetHeight()
-    local size = math.max(18, math.min(44, math.floor(h * 0.45)))
-    alertFrame.text:SetFont(STANDARD_TEXT_FONT, size, "OUTLINE")
+    local height = alertFrame:GetHeight()
+
+    local size = math.max(
+        18,
+        math.min(
+            44,
+            math.floor(height * 0.45)
+        )
+    )
+
+    alertFrame.text:SetFont(
+        STANDARD_TEXT_FONT,
+        size,
+        "OUTLINE"
+    )
 end
 
-AddResizeCorners(alertFrame, 260, 50, 1200, 220, UpdateAlertFont)
+AddResizeCorners(
+    alertFrame,
+    "alert",
+    260,
+    50,
+    1200,
+    220,
+    UpdateAlertFont
+)
+
 UpdateAlertFont()
 
-local function ShowFWCAlert(msg)
-    if not alertEnabled then return end
+local function ShowFWCAlert(message)
+    if not alertEnabled then
+        return
+    end
 
     alertTestMode = false
-    alertFrame.text:SetText(msg)
+
+    alertHideGeneration =
+        alertHideGeneration + 1
+
+    local myGeneration =
+        alertHideGeneration
+
+    alertFrame.text:SetText(message)
     alertFrame:Show()
 
-    C_Timer.After(3, function()
-        if not alertTestMode then
-            alertFrame:Hide()
+    C_Timer.After(
+        3,
+        function()
+            if myGeneration
+                    == alertHideGeneration
+                and not alertTestMode
+            then
+                alertFrame:Hide()
+            end
         end
-    end)
+    )
 end
 
 SLASH_FWCALERT1 = "/fwcalert"
+
 SlashCmdList["FWCALERT"] = function()
-    if alertFrame:IsShown() and alertTestMode then
+    if alertFrame:IsShown()
+        and alertTestMode
+    then
         alertTestMode = false
         alertFrame:Hide()
-        print("|cffffff00FWC Alert test hidden.|r")
+
+        print(
+            "|cffffff00FWC Alert test hidden.|r"
+        )
+
         return
     end
 
     alertEnabled = true
     alertTestMode = true
 
-    alertFrame.text:SetText("TANK! Fear Ward missing on Testtank")
+    alertHideGeneration =
+        alertHideGeneration + 1
+
+    alertFrame.text:SetText(
+        "TANK! Fear Ward missing on Testtank"
+    )
+
     alertFrame:Show()
 
-    FearWardCoordinatorDB = FearWardCoordinatorDB or {}
-    FearWardCoordinatorDB.alertEnabled = true
+    local db = EnsureDB()
+    db.alertEnabled = true
 
-    print("|cff00ff00FWC Alert test shown.|r Left-drag to move.")
-    print("|cff00ff00Shift + right-drag corner to resize.|r")
-    print("|cff00ff00Run /fwcalert again to hide.|r")
+    print(
+        "|cff00ff00FWC Alert test shown.|r "
+            .. "Left-drag to move."
+    )
+
+    print(
+        "|cff00ff00Shift + right-drag "
+            .. "a corner to resize.|r"
+    )
+
+    print(
+        "|cff00ff00Run /fwcalert again "
+            .. "to hide.|r"
+    )
 end
 
-SLASH_FWCALERTOFF1 = "/fwcalertoff"
+SLASH_FWCALERTOFF1 =
+    "/fwcalertoff"
+
 SlashCmdList["FWCALERTOFF"] = function()
     alertEnabled = false
     alertTestMode = false
+
+    alertHideGeneration =
+        alertHideGeneration + 1
+
     alertFrame:Hide()
 
-    FearWardCoordinatorDB = FearWardCoordinatorDB or {}
-    FearWardCoordinatorDB.alertEnabled = false
+    local db = EnsureDB()
+    db.alertEnabled = false
 
-    print("|cffffff00FWC alerts disabled.|r")
+    print(
+        "|cffffff00FWC alerts disabled.|r"
+    )
 end
 
-SLASH_FWCALERTON1 = "/fwcalerton"
+SLASH_FWCALERTON1 =
+    "/fwcalerton"
+
 SlashCmdList["FWCALERTON"] = function()
     alertEnabled = true
 
-    FearWardCoordinatorDB = FearWardCoordinatorDB or {}
-    FearWardCoordinatorDB.alertEnabled = true
+    local db = EnsureDB()
+    db.alertEnabled = true
 
-    print("|cff00ff00FWC alerts enabled.|r")
+    print(
+        "|cff00ff00FWC alerts enabled.|r"
+    )
 end
 
---------------------------------------------------
--- MAIN BAR
---------------------------------------------------
+local frame = CreateFrame(
+    "Button",
+    "FWCFrame",
+    UIParent,
+    "BackdropTemplate"
+)
 
-local frame = CreateFrame("Button", "FWCFrame", UIParent, "BackdropTemplate")
 frame:SetSize(145, 45)
-frame:SetPoint("CENTER")
+frame:SetClampedToScreen(true)
 frame:Hide()
 
-MakeMovable(frame)
-AddResizeCorners(frame, 120, 40, 400, 120)
+RestoreFramePosition(
+    frame,
+    "main",
+    "CENTER",
+    "CENTER",
+    0,
+    0
+)
+
+MakeMovable(frame, "main")
+
+AddResizeCorners(
+    frame,
+    "main",
+    120,
+    40,
+    400,
+    120
+)
 
 frame:SetBackdrop({
-    bgFile = "Interface\\Buttons\\WHITE8x8",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    bgFile =
+        "Interface\\Buttons\\WHITE8x8",
+
+    edgeFile =
+        "Interface\\Tooltips\\"
+        .. "UI-Tooltip-Border",
+
     edgeSize = 10,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 }
+
+    insets = {
+        left = 2,
+        right = 2,
+        top = 2,
+        bottom = 2,
+    },
 })
 
-frame:SetBackdropColor(0, 0.35, 0, 0.9)
+frame:SetBackdropColor(
+    0,
+    0.35,
+    0,
+    0.9
+)
+
 addon.uiFrame = frame
 
-local icon = frame:CreateTexture(nil, "ARTWORK")
+local icon =
+    frame:CreateTexture(
+        nil,
+        "ARTWORK"
+    )
+
 icon:SetSize(24, 24)
-icon:SetPoint("LEFT", frame, "LEFT", 6, 0)
-icon:SetTexture("Interface\\Icons\\Spell_Holy_Excorcism")
 
-local nameText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-nameText:SetPoint("TOPLEFT", frame, "TOPLEFT", 36, -7)
+icon:SetPoint(
+    "LEFT",
+    frame,
+    "LEFT",
+    6,
+    0
+)
 
-local groupText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-groupText:SetPoint("LEFT", frame, "LEFT", 36, -9)
+icon:SetTexture(135955)
 
---------------------------------------------------
--- POPOUT
---------------------------------------------------
+local nameText =
+    frame:CreateFontString(
+        nil,
+        "OVERLAY",
+        "GameFontNormalSmall"
+    )
 
-local popout = CreateFrame("Frame", "FWCPopoutFrame", UIParent, "BasicFrameTemplateWithInset")
+nameText:SetPoint(
+    "TOPLEFT",
+    frame,
+    "TOPLEFT",
+    36,
+    -7
+)
+
+local groupText =
+    frame:CreateFontString(
+        nil,
+        "OVERLAY",
+        "GameFontHighlight"
+    )
+
+groupText:SetPoint(
+    "LEFT",
+    frame,
+    "LEFT",
+    36,
+    -9
+)
+
+local popout = CreateFrame(
+    "Frame",
+    "FWCPopoutFrame",
+    UIParent,
+    "BasicFrameTemplateWithInset"
+)
+
 popout:SetSize(230, 180)
-popout:SetPoint("TOP", frame, "BOTTOM", 0, -4)
-popout:Hide()
+popout:SetClampedToScreen(true)
 popout:SetAlpha(1)
+popout:Hide()
 
-MakeMovable(popout)
-AddResizeCorners(popout, 190, 120, 520, 650)
+RestoreFramePosition(
+    popout,
+    "popout",
+    "CENTER",
+    "CENTER",
+    0,
+    -130
+)
 
-popout.title = popout:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-popout.title:SetPoint("CENTER", popout.TitleBg, "CENTER")
-popout.title:SetText("My Fear Ward Groups")
+MakeMovable(popout, "popout")
 
---------------------------------------------------
--- DATA HELPERS
---------------------------------------------------
+AddResizeCorners(
+    popout,
+    "popout",
+    190,
+    120,
+    520,
+    650
+)
+
+popout.title =
+    popout:CreateFontString(
+        nil,
+        "OVERLAY",
+        "GameFontHighlight"
+    )
+
+popout.title:SetPoint(
+    "CENTER",
+    popout.TitleBg,
+    "CENTER"
+)
+
+popout.title:SetText(
+    "My Fear Ward Groups"
+)
 
 local popoutObjects = {}
 local playerRows = {}
 
 local function NormalizeName(name)
-    if not name then return nil end
+    if not name then
+        return nil
+    end
+
     return Ambiguate(name, "short")
 end
 
 local function GetMyGroups()
-    local player = NormalizeName(UnitName("player"))
+    local player =
+        NormalizeName(UnitName("player"))
+
     local groups = {}
 
     if addon.state.assignments then
-        for priest, assignedGroups in pairs(addon.state.assignments) do
+        for priest, assignedGroups in pairs(
+            addon.state.assignments
+        ) do
             if NormalizeName(priest) == player then
-                for g = 1, 8 do
-                    if assignedGroups[g] then
-                        table.insert(groups, g)
+                for group = 1, 8 do
+                    if assignedGroups[group] then
+                        table.insert(
+                            groups,
+                            group
+                        )
                     end
                 end
             end
@@ -225,113 +607,171 @@ local function GetMyGroups()
     end
 
     table.sort(groups)
+
     return groups
 end
 
 local function IsUnitInFearWardRange(unit)
-    if not unit or not UnitExists(unit) then return false end
-    if UnitIsDeadOrGhost(unit) then return false end
-    if not UnitIsConnected(unit) then return false end
+    if not unit or not UnitExists(unit) then
+        return false
+    end
 
-    local inRange = IsSpellInRange(FEAR_WARD_SPELL, unit)
-    return inRange == 1
-end
+    if UnitIsDeadOrGhost(unit)
+        or not UnitIsConnected(unit)
+    then
+        return false
+    end
 
-local function CanSafelyCheckFearWard(unit)
-    if not unit or not UnitExists(unit) then return false end
-    if UnitIsDeadOrGhost(unit) then return false end
-    if not UnitIsConnected(unit) then return false end
+    if addon.IsFearWardInRange then
+        return addon:IsFearWardInRange(unit)
+    end
 
-    -- IMPORTANT:
-    -- Do not require spell range here.
-    -- Buff scanning can still work on raid members outside spell range,
-    -- and requiring range was stopping open-world raid alerts.
-    return true
+    return false
 end
 
 local function ClearPopout()
-    if InCombatLockdown() then return end
+    if InCombatLockdown() then
+        return
+    end
 
-    for _, obj in pairs(popoutObjects) do
-        obj:Hide()
+    for _, object in ipairs(
+        popoutObjects
+    ) do
+        object:Hide()
+        object:SetParent(nil)
     end
 
     wipe(popoutObjects)
     wipe(playerRows)
 end
 
-local function AddText(text, x, y, template)
-    local fs = popout:CreateFontString(nil, "OVERLAY", template or "GameFontNormal")
-    fs:SetPoint("TOPLEFT", popout, "TOPLEFT", x, y)
-    fs:SetText(text)
+local function AddText(
+    text,
+    x,
+    y,
+    template
+)
+    local fontString =
+        popout:CreateFontString(
+            nil,
+            "OVERLAY",
+            template or "GameFontNormal"
+        )
 
-    table.insert(popoutObjects, fs)
-    return fs
+    fontString:SetPoint(
+        "TOPLEFT",
+        popout,
+        "TOPLEFT",
+        x,
+        y
+    )
+
+    fontString:SetText(text)
+
+    table.insert(
+        popoutObjects,
+        fontString
+    )
+
+    return fontString
 end
 
---------------------------------------------------
--- ALERT WATCHER
---------------------------------------------------
-
-local function AddAlertWatchTarget(targets, name, unit, isTank)
-    if not name or not unit then return end
+local function AddAlertWatchTarget(
+    targets,
+    name,
+    unit,
+    isTank
+)
+    if not name or not unit then
+        return
+    end
 
     local key = NormalizeName(name)
-    if not key then return end
+
+    if not key then
+        return
+    end
 
     if not targets[key] then
         targets[key] = {
-            name = NormalizeName(name),
+            name = name,
             unit = unit,
-            isTank = isTank or false
+            isTank = isTank or false,
         }
     elseif isTank then
         targets[key].isTank = true
     end
 end
 
-local function AddAssignedGroupAlertTargets(targets)
-    local groups = GetMyGroups()
-
-    for _, groupNumber in ipairs(groups) do
-        local members = addon:GetGroupMembers(groupNumber)
+local function AddAssignedGroupAlertTargets(
+    targets
+)
+    for _, groupNumber in ipairs(
+        GetMyGroups()
+    ) do
+        local members =
+            addon:GetGroupMembers(
+                groupNumber
+            )
 
         for _, member in ipairs(members) do
-            AddAlertWatchTarget(targets, member.name, member.unit, false)
+            AddAlertWatchTarget(
+                targets,
+                member.name,
+                member.unit,
+                false
+            )
         end
     end
 end
 
-local function AddMainTankAlertTargets(targets)
-    if not IsInRaid() then return end
+local function AddMainTankAlertTargets(
+    targets
+)
+    if not IsInRaid() then
+        return
+    end
 
     for i = 1, 40 do
         local unit = "raid" .. i
-        local name = GetRaidRosterInfo(i)
+
+        local name,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            raidRole =
+            GetRaidRosterInfo(i)
 
         if name and UnitExists(unit) then
-            local shortName = NormalizeName(name)
+            local isMainTank =
+                GetPartyAssignment
+                and GetPartyAssignment(
+                    "MAINTANK",
+                    unit
+                )
 
-            local isMainTank = false
+            local assignedRole =
+                UnitGroupRolesAssigned
+                and UnitGroupRolesAssigned(
+                    unit
+                )
+                or "NONE"
 
-            if GetPartyAssignment then
-                if GetPartyAssignment("MAINTANK", unit) then
-                    isMainTank = true
-                end
-
-                if not isMainTank and GetPartyAssignment("MAINTANK", name) then
-                    isMainTank = true
-                end
-
-                if not isMainTank and shortName and GetPartyAssignment("MAINTANK", shortName) then
-                    isMainTank = true
-                end
-            end
-
-            local assignedRole = UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit) or "NONE"
-
-            if isMainTank or assignedRole == "TANK" then
-                AddAlertWatchTarget(targets, shortName or name, unit, true)
+            if isMainTank
+                or raidRole == "MAINTANK"
+                or assignedRole == "TANK"
+            then
+                AddAlertWatchTarget(
+                    targets,
+                    name,
+                    unit,
+                    true
+                )
             end
         end
     end
@@ -343,8 +783,6 @@ local function RefreshFearWardAlerts()
         return
     end
 
-    if not alertEnabled then return end
-
     local targets = {}
     local currentlyTracked = {}
 
@@ -354,45 +792,34 @@ local function RefreshFearWardAlerts()
     for key, target in pairs(targets) do
         currentlyTracked[key] = true
 
-        if CanSafelyCheckFearWard(target.unit) then
-            local hasBuff = addon:GetFearWardInfo(target.unit)
-
-            if alertWatchState[key] == nil then
-                alertWatchState[key] = {
-                    hadBuff = hasBuff and true or false,
-                    alertedMissing = false,
-                    seen = true
-                }
-            end
-
-            local state = alertWatchState[key]
+        if addon.CanSafelyCheckFearWard
+            and addon:CanSafelyCheckFearWard(
+                target.unit
+            )
+        then
+            local hasBuff =
+                addon:GetFearWardInfo(
+                    target.unit
+                )
 
             if hasBuff then
-                state.hadBuff = true
-                state.alertedMissing = false
-                state.seen = true
+                alertWatchState[key] = true
             else
-                -- Tanks should alert even if they are already missing when first detected.
-                -- Non-tanks only alert after we previously saw Fear Ward on them.
-                local shouldAlert =
-                    not state.alertedMissing and
-                    (
-                        target.isTank or
-                        state.hadBuff
-                    )
-
-                if shouldAlert then
+                if alertWatchState[key] == true then
                     if target.isTank then
-                        ShowFWCAlert("TANK! Fear Ward missing on " .. target.name)
+                        ShowFWCAlert(
+                            "TANK! Fear Ward missing on "
+                                .. target.name
+                        )
                     else
-                        ShowFWCAlert("Fear Ward missing on " .. target.name)
+                        ShowFWCAlert(
+                            "Fear Ward missing on "
+                                .. target.name
+                        )
                     end
-
-                    state.alertedMissing = true
                 end
 
-                state.hadBuff = false
-                state.seen = true
+                alertWatchState[key] = false
             end
         end
     end
@@ -404,207 +831,398 @@ local function RefreshFearWardAlerts()
     end
 end
 
---------------------------------------------------
--- SECURE CLICK BUTTONS
---------------------------------------------------
+local function CreateFearWardButton(
+    member,
+    x,
+    y,
+    width,
+    labelText
+)
+    local button = CreateFrame(
+        "Button",
+        nil,
+        popout,
+        "SecureActionButtonTemplate"
+    )
 
-local function CreateFearWardButton(member, x, y, width, labelText)
-    local btn = CreateFrame("Button", nil, popout, "SecureActionButtonTemplate")
-    btn:SetSize(width, 16)
-    btn:SetPoint("TOPLEFT", popout, "TOPLEFT", x, y)
+    button:SetSize(width, 16)
 
-    btn:SetAttribute("type", "spell")
-    btn:SetAttribute("spell", FEAR_WARD_SPELL)
-    btn:SetAttribute("unit", member.unit)
+    button:SetPoint(
+        "TOPLEFT",
+        popout,
+        "TOPLEFT",
+        x,
+        y
+    )
 
-    local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
-    highlight:SetTexture("Interface\\Buttons\\WHITE8x8")
-    highlight:SetPoint("LEFT", btn, "LEFT", 0, 0)
-    highlight:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
-    highlight:SetHeight(16)
-    highlight:SetVertexColor(1, 1, 1, 0.18)
-    btn:SetHighlightTexture(highlight)
+    button:SetAttribute("type", "spell")
 
-    local text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    text:SetPoint("LEFT", btn, "LEFT", 0, 0)
-    text:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
+    button:SetAttribute(
+        "spell",
+        FEAR_WARD_SPELL_NAME
+            or FEAR_WARD_SPELL_ID
+    )
+
+    button:SetAttribute(
+        "unit",
+        member.unit
+    )
+
+    local highlight =
+        button:CreateTexture(
+            nil,
+            "HIGHLIGHT"
+        )
+
+    highlight:SetTexture(
+        "Interface\\Buttons\\WHITE8x8"
+    )
+
+    highlight:SetAllPoints(button)
+
+    highlight:SetVertexColor(
+        1,
+        1,
+        1,
+        0.18
+    )
+
+    button:SetHighlightTexture(
+        highlight
+    )
+
+    local text =
+        button:CreateFontString(
+            nil,
+            "OVERLAY",
+            "GameFontNormalSmall"
+        )
+
+    text:SetPoint(
+        "LEFT",
+        button,
+        "LEFT",
+        0,
+        0
+    )
+
+    text:SetPoint(
+        "RIGHT",
+        button,
+        "RIGHT",
+        0,
+        0
+    )
+
     text:SetJustifyH("LEFT")
     text:SetText(labelText)
 
-    btn.text = text
+    button.text = text
 
-    btn:SetScript("PreClick", function()
-        if not IsUnitInFearWardRange(member.unit) then
-            print("|cffff0000FWC: " .. member.name .. " is out of range for Fear Ward.|r")
+    button:SetScript(
+        "PreClick",
+        function()
+            if not IsUnitInFearWardRange(
+                member.unit
+            ) then
+                print(
+                    "|cffff0000FWC: "
+                        .. member.name
+                        .. " is out of range "
+                        .. "for Fear Ward.|r"
+                )
+            end
         end
-    end)
+    )
 
-    table.insert(popoutObjects, btn)
-    return btn
+    table.insert(
+        popoutObjects,
+        button
+    )
+
+    return button
 end
 
-local function AddPlayerRow(member, x, y)
-    local nameBtn = CreateFearWardButton(member, x, y, 86, member.name)
-    local statusBtn = CreateFearWardButton(member, x + 112, y, 72, "...")
+local function AddPlayerRow(
+    member,
+    x,
+    y
+)
+    local nameButton =
+        CreateFearWardButton(
+            member,
+            x,
+            y,
+            86,
+            member.name
+        )
 
-    table.insert(playerRows, {
-        name = member.name,
-        unit = member.unit,
-        nameButton = nameBtn,
-        statusButton = statusBtn,
-        statusText = statusBtn.text
-    })
+    local statusButton =
+        CreateFearWardButton(
+            member,
+            x + 112,
+            y,
+            72,
+            "..."
+        )
+
+    table.insert(
+        playerRows,
+        {
+            name = member.name,
+            unit = member.unit,
+            nameButton = nameButton,
+            statusButton = statusButton,
+            statusText = statusButton.text,
+        }
+    )
 end
-
---------------------------------------------------
--- STATUS UPDATE ONLY
---------------------------------------------------
 
 function addon:RefreshPopoutStatusOnly()
     for _, row in ipairs(playerRows) do
         local unit = row.unit
         local statusText
-        local hasBuff = false
-        local remaining = 0
-        local inRange = IsUnitInFearWardRange(unit)
+
+        local inRange =
+            IsUnitInFearWardRange(unit)
 
         if not UnitExists(unit) then
-            statusText = "|cff888888Gone|r"
+            statusText =
+                "|cff888888Gone|r"
+
         elseif UnitIsDeadOrGhost(unit) then
-            statusText = "|cff888888Dead|r"
+            statusText =
+                "|cff888888Dead|r"
+
         elseif not UnitIsConnected(unit) then
-            statusText = "|cff888888Offline|r"
+            statusText =
+                "|cff888888Offline|r"
+
         else
-            hasBuff, remaining = addon:GetFearWardInfo(unit)
+            local hasBuff, remaining =
+                addon:GetFearWardInfo(unit)
 
             if hasBuff then
-                if remaining > 0 and remaining < 300 then
-                    statusText = "|cffffff00FW " .. addon:FormatTime(remaining) .. "|r"
+                if remaining > 0
+                    and remaining < 300
+                then
+                    statusText =
+                        "|cffffff00FW "
+                        .. addon:FormatTime(
+                            remaining
+                        )
+                        .. "|r"
                 else
-                    statusText = "|cff00ff00FW " .. addon:FormatTime(remaining) .. "|r"
+                    statusText =
+                        "|cff00ff00FW "
+                        .. addon:FormatTime(
+                            remaining
+                        )
+                        .. "|r"
                 end
             else
-                statusText = "|cffff0000Missing|r"
+                statusText =
+                    "|cffff0000Missing|r"
             end
         end
 
         row.statusText:SetText(statusText)
 
-        if inRange then
-            row.statusButton:SetAlpha(1)
-            row.nameButton:SetAlpha(1)
-        else
-            row.statusButton:SetAlpha(0.8)
-            row.nameButton:SetAlpha(0.8)
-        end
+        local alpha =
+            inRange and 1 or 0.8
+
+        row.statusButton:SetAlpha(alpha)
+        row.nameButton:SetAlpha(alpha)
 
         row.nameButton:Enable()
         row.statusButton:Enable()
     end
 end
 
---------------------------------------------------
--- BUILD POPOUT
---------------------------------------------------
-
 function addon:BuildPopout()
     if InCombatLockdown() then
-        print("|cffff0000FWC: Cannot rebuild buttons during combat. Open before pull.|r")
+        print(
+            "|cffff0000FWC: Cannot rebuild "
+                .. "secure buttons during combat. "
+                .. "Open before pull.|r"
+        )
+
         return
     end
 
     ClearPopout()
 
     local groups = GetMyGroups()
-    popout.title:SetText("My Fear Ward Groups")
+
+    popout.title:SetText(
+        "My Fear Ward Groups"
+    )
 
     if #groups == 0 then
-        AddText("No groups assigned.", 10, -32)
+        AddText(
+            "No groups assigned.",
+            10,
+            -32
+        )
+
         popout:SetSize(230, 95)
+
+        SaveFramePosition(
+            popout,
+            "popout"
+        )
+
         return
     end
 
-    AddText("Click name or status to cast", 10, -30, "GameFontDisableSmall")
+    AddText(
+        "Click name or status to cast",
+        10,
+        -30,
+        "GameFontDisableSmall"
+    )
 
     local line = 0
 
     for _, groupNumber in ipairs(groups) do
-        AddText("Group " .. groupNumber, 10, -48 - (line * 19), "GameFontHighlight")
+        AddText(
+            "Group " .. groupNumber,
+            10,
+            -48 - (line * 19),
+            "GameFontHighlight"
+        )
+
         line = line + 1
 
-        local members = addon:GetGroupMembers(groupNumber)
+        local members =
+            addon:GetGroupMembers(
+                groupNumber
+            )
 
         if #members == 0 then
-            AddText("No members", 24, -48 - (line * 19), "GameFontDisableSmall")
+            AddText(
+                "No members",
+                24,
+                -48 - (line * 19),
+                "GameFontDisableSmall"
+            )
+
             line = line + 1
         else
-            for _, member in ipairs(members) do
-                local y = -48 - (line * 19)
-                AddPlayerRow(member, 24, y)
+            for _, member in ipairs(
+                members
+            ) do
+                local y =
+                    -48 - (line * 19)
+
+                AddPlayerRow(
+                    member,
+                    24,
+                    y
+                )
+
                 line = line + 1
             end
         end
     end
 
-    local neededHeight = 70 + (line * 19)
-    neededHeight = math.max(120, math.min(neededHeight, 650))
+    local neededHeight = math.max(
+        120,
+        math.min(
+            70 + (line * 19),
+            650
+        )
+    )
+
     popout:SetHeight(neededHeight)
+
+    SaveFramePosition(
+        popout,
+        "popout"
+    )
 
     addon:RefreshPopoutStatusOnly()
 end
 
---------------------------------------------------
--- TOGGLE POPOUT
---------------------------------------------------
-
 local function TogglePopout()
     if popout:IsShown() then
         if InCombatLockdown() then
-            print("|cffffff00FWC: Cannot close secure popout during combat.|r")
+            print(
+                "|cffffff00FWC: Cannot close "
+                    .. "secure popout during "
+                    .. "combat.|r"
+            )
+
             return
         end
 
         popout:Hide()
+        return
+    end
+
+    if InCombatLockdown()
+        and #playerRows == 0
+    then
+        print(
+            "|cffff0000FWC: Open the "
+                .. "popout before combat "
+                .. "to enable click-casting.|r"
+        )
+
+        return
+    end
+
+    popout:Show()
+
+    if not InCombatLockdown() then
+        addon:BuildPopout()
     else
-        if InCombatLockdown() and #playerRows == 0 then
-            print("|cffff0000FWC: Open before combat to enable click-casting.|r")
-            return
-        end
-
-        popout:Show()
-
-        if not InCombatLockdown() then
-            addon:BuildPopout()
-        else
-            addon:RefreshPopoutStatusOnly()
-        end
+        addon:RefreshPopoutStatusOnly()
     end
 end
 
-frame:SetScript("OnClick", TogglePopout)
-
---------------------------------------------------
--- MAIN UI
---------------------------------------------------
+frame:SetScript(
+    "OnClick",
+    TogglePopout
+)
 
 function addon:RefreshUI()
-    if not frame:IsShown() then return end
+    if not frame:IsShown() then
+        return
+    end
 
     if addon.ScanRaid then
         addon:ScanRaid()
     end
 
-    local player = NormalizeName(UnitName("player"))
+    local player =
+        NormalizeName(UnitName("player"))
+
     local groups = GetMyGroups()
 
     nameText:SetText(player or "Me")
 
     if #groups == 0 then
         groupText:SetText("Groups: -")
-        frame:SetBackdropColor(0.45, 0, 0, 0.9)
+
+        frame:SetBackdropColor(
+            0.45,
+            0,
+            0,
+            0.9
+        )
     else
-        groupText:SetText("Groups: " .. table.concat(groups, ","))
-        frame:SetBackdropColor(0, 0.35, 0, 0.9)
+        groupText:SetText(
+            "Groups: "
+                .. table.concat(groups, ",")
+        )
+
+        frame:SetBackdropColor(
+            0,
+            0.35,
+            0,
+            0.9
+        )
     end
 
     if popout:IsShown() then
@@ -615,7 +1233,12 @@ end
 function addon:ToggleUI()
     if frame:IsShown() then
         if InCombatLockdown() then
-            print("|cffffff00FWC: Cannot safely close secure frames in combat.|r")
+            print(
+                "|cffffff00FWC: Cannot safely "
+                    .. "close secure frames "
+                    .. "during combat.|r"
+            )
+
             return
         end
 
@@ -627,33 +1250,65 @@ function addon:ToggleUI()
     end
 end
 
---------------------------------------------------
--- LOAD SAVED ALERT SETTING
---------------------------------------------------
-
 local loadFrame = CreateFrame("Frame")
+
 loadFrame:RegisterEvent("PLAYER_LOGIN")
-loadFrame:SetScript("OnEvent", function()
-    FearWardCoordinatorDB = FearWardCoordinatorDB or {}
 
-    if FearWardCoordinatorDB.alertEnabled == nil then
-        FearWardCoordinatorDB.alertEnabled = true
+loadFrame:SetScript(
+    "OnEvent",
+    function()
+        local db = EnsureDB()
+
+        if db.alertEnabled == nil then
+            db.alertEnabled = true
+        end
+
+        alertEnabled =
+            db.alertEnabled
+
+        RestoreFramePosition(
+            alertFrame,
+            "alert",
+            "TOP",
+            "TOP",
+            0,
+            -180
+        )
+
+        RestoreFramePosition(
+            frame,
+            "main",
+            "CENTER",
+            "CENTER",
+            0,
+            0
+        )
+
+        RestoreFramePosition(
+            popout,
+            "popout",
+            "CENTER",
+            "CENTER",
+            0,
+            -130
+        )
+
+        UpdateAlertFont()
     end
-
-    alertEnabled = FearWardCoordinatorDB.alertEnabled
-end)
-
---------------------------------------------------
--- LIVE UPDATE
---------------------------------------------------
+)
 
 local updater = CreateFrame("Frame")
 local elapsed = 0
 
-updater:SetScript("OnUpdate", function(_, delta)
-    elapsed = elapsed + delta
+updater:SetScript(
+    "OnUpdate",
+    function(_, delta)
+        elapsed = elapsed + delta
 
-    if elapsed >= 1 then
+        if elapsed < 1 then
+            return
+        end
+
         elapsed = 0
 
         RefreshFearWardAlerts()
@@ -666,12 +1321,43 @@ updater:SetScript("OnUpdate", function(_, delta)
             addon:RefreshPopoutStatusOnly()
         end
     end
-end)
+)
 
-local combatFrame = CreateFrame("Frame")
-combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-combatFrame:SetScript("OnEvent", function()
-    if popout:IsShown() then
-        addon:BuildPopout()
+local eventFrame = CreateFrame("Frame")
+
+eventFrame:RegisterEvent(
+    "PLAYER_REGEN_ENABLED"
+)
+
+eventFrame:RegisterEvent(
+    "GROUP_ROSTER_UPDATE"
+)
+
+eventFrame:RegisterEvent(
+    "PLAYER_ROLES_ASSIGNED"
+)
+
+eventFrame:RegisterEvent(
+    "PLAYER_ENTERING_WORLD"
+)
+
+eventFrame:SetScript(
+    "OnEvent",
+    function(_, event)
+        if event == "PLAYER_REGEN_ENABLED" then
+            if popout:IsShown() then
+                addon:BuildPopout()
+            end
+
+            return
+        end
+
+        if not InCombatLockdown()
+            and popout:IsShown()
+        then
+            addon:BuildPopout()
+        end
+
+        wipe(alertWatchState)
     end
-end)
+)
