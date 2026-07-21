@@ -1,94 +1,113 @@
 local addonName, addon = ...
 
+addon.name = addonName
+addon.version = "2.0.0"
 addon.state = addon.state or {}
 addon.state.priests = addon.state.priests or {}
 addon.state.assignments = addon.state.assignments or {}
 
-local frame = CreateFrame("Frame")
-
+local eventFrame = CreateFrame("Frame")
 local wasGrouped = false
+local pendingRefresh = false
 
-local function RefreshAll()
-    if addon.ScanRaid then
-        addon:ScanRaid()
-    end
-
-    if addon.RefreshUI then
-        addon:RefreshUI()
-    end
-
-    if addon.RefreshGridUI then
-        addon:RefreshGridUI()
-    end
-end
-
-local function ClearAllData()
-    addon.state.assignments = {}
-    addon.state.priests = {}
-
+local function DB()
     FearWardCoordinatorDB = FearWardCoordinatorDB or {}
-    FearWardCoordinatorDB.assignments = addon.state.assignments
-
-    if addon.RefreshUI then
-        addon:RefreshUI()
+    FearWardCoordinatorDB.assignments = FearWardCoordinatorDB.assignments or {}
+    FearWardCoordinatorDB.positions = FearWardCoordinatorDB.positions or {}
+    if FearWardCoordinatorDB.alertEnabled == nil then
+        FearWardCoordinatorDB.alertEnabled = true
     end
-
-    if addon.RefreshGridUI then
-        addon:RefreshGridUI()
-    end
-
-    print("|cffffff00FWC: Group left. Assignments cleared.|r")
+    return FearWardCoordinatorDB
 end
 
-frame:RegisterEvent("PLAYER_LOGIN")
-frame:RegisterEvent("GROUP_ROSTER_UPDATE")
-frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+addon.GetDB = DB
 
-frame:SetScript("OnEvent", function(_, event)
-    if event == "PLAYER_LOGIN" then
-        FearWardCoordinatorDB = FearWardCoordinatorDB or {}
-        FearWardCoordinatorDB.assignments = FearWardCoordinatorDB.assignments or {}
+function addon:ShortName(name)
+    if not name then return nil end
+    return Ambiguate(name, "short")
+end
 
-        addon.state.assignments = FearWardCoordinatorDB.assignments
+function addon:GetPlayerName()
+    return self:ShortName(UnitName("player"))
+end
 
-        wasGrouped = IsInGroup()
-
-        print("|cff00ff00FearWardCoordinator loaded.|r Type |cffffff00/fwc|r or |cffffff00/fwcgrid|r")
-
-        RefreshAll()
+function addon:RefreshAll()
+    if InCombatLockdown() then
+        pendingRefresh = true
+        if self.RefreshStatusOnly then
+            self:RefreshStatusOnly()
+        end
         return
     end
 
-    if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
-        local isGrouped = IsInGroup()
+    pendingRefresh = false
+    if self.ScanGroup then self:ScanGroup() end
+    if self.RefreshUI then self:RefreshUI() end
+    if self.RefreshGridUI then self:RefreshGridUI() end
+end
 
-        if wasGrouped and not isGrouped then
-            ClearAllData()
-        else
-            RefreshAll()
-        end
+function addon:ClearGroupData()
+    wipe(self.state.assignments)
+    wipe(self.state.priests)
+    DB().assignments = self.state.assignments
+    if self.RefreshUI then self:RefreshUI() end
+    if self.RefreshGridUI then self:RefreshGridUI() end
+    print("|cffffff00FWC: Group left. Assignments cleared.|r")
+end
 
-        wasGrouped = isGrouped
+eventFrame:RegisterEvent("ADDON_LOADED")
+eventFrame:RegisterEvent("PLAYER_LOGIN")
+eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+
+eventFrame:SetScript("OnEvent", function(_, event, arg1)
+    if event == "ADDON_LOADED" then
+        if arg1 ~= addonName then return end
+        addon.state.assignments = DB().assignments
+        return
     end
+
+    if event == "PLAYER_LOGIN" then
+        addon.state.assignments = DB().assignments
+        wasGrouped = IsInGroup()
+        addon:RefreshAll()
+        print("|cff00ff00FearWardCoordinator " .. addon.version .. " loaded.|r Type |cffffff00/fwc|r or |cffffff00/fwcgrid|r")
+        return
+    end
+
+    if event == "PLAYER_REGEN_ENABLED" then
+        if pendingRefresh then addon:RefreshAll() end
+        return
+    end
+
+    if event == "PLAYER_REGEN_DISABLED" then
+        if addon.RefreshStatusOnly then addon:RefreshStatusOnly() end
+        return
+    end
+
+    local grouped = IsInGroup()
+    if wasGrouped and not grouped then
+        addon:ClearGroupData()
+    else
+        addon:RefreshAll()
+    end
+    wasGrouped = grouped
 end)
 
 SLASH_FWC1 = "/fwc"
 SLASH_FWC2 = "/fearward"
-
-SlashCmdList["FWC"] = function()
-    if addon.ToggleUI then
-        addon:ToggleUI()
-    else
-        print("FWC: UI.lua is not loaded.")
-    end
+SlashCmdList.FWC = function()
+    if addon.ToggleUI then addon:ToggleUI() else print("FWC: UI.lua is not loaded.") end
 end
 
 SLASH_FWCGRID1 = "/fwcgrid"
+SlashCmdList.FWCGRID = function()
+    if addon.ToggleGridUI then addon:ToggleGridUI() else print("FWC: GridUI.lua is not loaded.") end
+end
 
-SlashCmdList["FWCGRID"] = function()
-    if addon.ToggleGridUI then
-        addon:ToggleGridUI()
-    else
-        print("FWC: GridUI.lua is not loaded.")
-    end
+SLASH_FWCDIAG1 = "/fwcdiag"
+SlashCmdList.FWCDIAG = function()
+    if addon.PrintDiagnostics then addon:PrintDiagnostics() end
 end
