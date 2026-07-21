@@ -1,556 +1,66 @@
 local addonName, addon = ...
+local DB = addon.GetDB
 
-addon.state = addon.state or {}
-addon.state.priests =
-    addon.state.priests or {}
-addon.state.assignments =
-    addon.state.assignments or {}
-
-local function EnsureDB()
-    FearWardCoordinatorDB =
-        FearWardCoordinatorDB or {}
-
-    FearWardCoordinatorDB.positions =
-        FearWardCoordinatorDB.positions or {}
-
-    return FearWardCoordinatorDB
-end
-
-local function SaveGridPosition(frame)
-    local point,
-        _,
-        relativePoint,
-        x,
-        y = frame:GetPoint(1)
-
-    local db = EnsureDB()
-
-    db.positions.grid =
-        db.positions.grid or {}
-
-    db.positions.grid.point = point
-
-    db.positions.grid.relativePoint =
-        relativePoint
-
-    db.positions.grid.x = x
-    db.positions.grid.y = y
-
-    db.positions.grid.width =
-        frame:GetWidth()
-
-    db.positions.grid.height =
-        frame:GetHeight()
-
-    db.positions.grid.scale =
-        frame:GetScale()
-end
-
-local function RestoreGridPosition(frame)
-    local db = EnsureDB()
-    local saved = db.positions.grid
-
-    frame:ClearAllPoints()
-
-    if saved then
-        frame:SetPoint(
-            saved.point or "CENTER",
-            UIParent,
-            saved.relativePoint or "CENTER",
-            saved.x or 0,
-            saved.y or 0
-        )
-
-        if saved.width and saved.height then
-            frame:SetSize(
-                saved.width,
-                saved.height
-            )
-        end
-
-        if saved.scale then
-            frame:SetScale(saved.scale)
-        end
-    else
-        frame:SetPoint(
-            "CENTER",
-            UIParent,
-            "CENTER",
-            0,
-            0
-        )
-    end
-
-    frame:SetUserPlaced(true)
-end
-
-local frame = CreateFrame(
-    "Frame",
-    "FWCGridFrame",
-    UIParent,
-    "BasicFrameTemplateWithInset"
-)
-
+local frame = CreateFrame("Frame", "FWCGridFrame2", UIParent, "BasicFrameTemplateWithInset")
 frame:SetSize(600, 400)
-frame:SetClampedToScreen(true)
+frame:SetPoint("CENTER")
 frame:SetMovable(true)
 frame:SetResizable(true)
-frame:EnableMouse(true)
-frame:RegisterForDrag("LeftButton")
+frame:SetClampedToScreen(true)
 frame:Hide()
+if frame.SetResizeBounds then frame:SetResizeBounds(420,260,1000,800) else frame:SetMinResize(420,260); frame:SetMaxResize(1000,800) end
 
-if frame.SetResizeBounds then
-    frame:SetResizeBounds(
-        420,
-        260,
-        1000,
-        800
-    )
-else
-    frame:SetMinResize(
-        420,
-        260
-    )
-
-    frame:SetMaxResize(
-        1000,
-        800
-    )
-end
-
-RestoreGridPosition(frame)
-
-frame:SetScript(
-    "OnDragStart",
-    function(self)
-        if not InCombatLockdown() then
-            self:StartMoving()
-        end
-    end
-)
-
-frame:SetScript(
-    "OnDragStop",
-    function(self)
-        self:StopMovingOrSizing()
-        SaveGridPosition(self)
-    end
-)
-
-frame.title =
-    frame:CreateFontString(
-        nil,
-        "OVERLAY",
-        "GameFontHighlight"
-    )
-
-frame.title:SetPoint(
-    "CENTER",
-    frame.TitleBg,
-    "CENTER"
-)
-
-frame.title:SetText(
-    "Fear Ward Assignment Grid"
-)
-
-addon.gridFrame = frame
+frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER")
+frame.title:SetText("Fear Ward Assignment Grid")
+frame.TitleBg:EnableMouse(true)
+frame.TitleBg:RegisterForDrag("LeftButton")
+frame.TitleBg:SetScript("OnDragStart", function() if not InCombatLockdown() then frame:StartMoving() end end)
+frame.TitleBg:SetScript("OnDragStop", function() frame:StopMovingOrSizing() end)
 
 local objects = {}
-
-local function AddResizeCorners(
-    targetFrame
-)
-    local corners = {
-        {
-            point = "TOPLEFT",
-            cursor = "TOPLEFT",
-        },
-        {
-            point = "TOPRIGHT",
-            cursor = "TOPRIGHT",
-        },
-        {
-            point = "BOTTOMLEFT",
-            cursor = "BOTTOMLEFT",
-        },
-        {
-            point = "BOTTOMRIGHT",
-            cursor = "BOTTOMRIGHT",
-        },
-    }
-
-    for _, data in ipairs(corners) do
-        local grip = CreateFrame(
-            "Button",
-            nil,
-            targetFrame
-        )
-
-        grip:SetSize(18, 18)
-
-        grip:SetPoint(
-            data.point,
-            targetFrame,
-            data.point,
-            0,
-            0
-        )
-
-        grip:RegisterForClicks(
-            "RightButtonDown",
-            "RightButtonUp"
-        )
-
-        grip:SetScript(
-            "OnMouseDown",
-            function()
-                if InCombatLockdown() then
-                    return
-                end
-
-                if IsShiftKeyDown()
-                    and IsMouseButtonDown(
-                        "RightButton"
-                    )
-                then
-                    targetFrame:StartSizing(
-                        data.cursor
-                    )
-                end
-            end
-        )
-
-        grip:SetScript(
-            "OnMouseUp",
-            function()
-                targetFrame:
-                    StopMovingOrSizing()
-
-                SaveGridPosition(
-                    targetFrame
-                )
-
-                if addon.RefreshGridUI then
-                    addon:RefreshGridUI()
-                end
-            end
-        )
-    end
-end
-
-AddResizeCorners(frame)
-
-local function ClearGrid()
-    for _, object in ipairs(objects) do
-        object:Hide()
-        object:SetParent(nil)
-    end
-
+local function Clear()
+    for _, obj in ipairs(objects) do obj:Hide(); obj:SetParent(nil) end
     wipe(objects)
 end
-
-local function AddText(
-    text,
-    x,
-    y,
-    template
-)
-    local fontString =
-        frame:CreateFontString(
-            nil,
-            "OVERLAY",
-            template or "GameFontNormal"
-        )
-
-    fontString:SetPoint(
-        "CENTER",
-        frame,
-        "TOPLEFT",
-        x,
-        y
-    )
-
-    fontString:SetText(text)
-    fontString:SetJustifyH("CENTER")
-
-    table.insert(
-        objects,
-        fontString
-    )
-
-    return fontString
+local function Text(text,x,y,template)
+    local fs=frame:CreateFontString(nil,"OVERLAY",template or "GameFontNormal")
+    fs:SetPoint("CENTER",frame,"TOPLEFT",x,y); fs:SetText(text); fs:SetJustifyH("CENTER")
+    objects[#objects+1]=fs; return fs
 end
-
-local function AddButton(
-    priest,
-    group,
-    x,
-    y
-)
-    local button = CreateFrame(
-        "Button",
-        nil,
-        frame,
-        "UIPanelButtonTemplate"
-    )
-
-    button:SetSize(36, 24)
-
-    button:SetPoint(
-        "CENTER",
-        frame,
-        "TOPLEFT",
-        x,
-        y
-    )
-
-    local assigned =
-        addon:GetAssignment(
-            priest,
-            group
-        )
-
-    button:SetText(
-        assigned and "X" or ""
-    )
-
-    local canEdit =
-        addon:CanEditPriest(priest)
-
-    if not canEdit
-        or InCombatLockdown()
-    then
-        button:Disable()
-
-        button:SetAlpha(
-            assigned and 0.75 or 0.25
-        )
-    else
-        button:Enable()
-        button:SetAlpha(1)
-    end
-
-    button:SetScript(
-        "OnClick",
-        function()
-            if InCombatLockdown() then
-                print(
-                    "|cffff0000FWC: "
-                        .. "Assignments cannot "
-                        .. "be changed during "
-                        .. "combat.|r"
-                )
-
-                return
-            end
-
-            if not addon:CanEditPriest(
-                priest
-            ) then
-                print(
-                    "|cffff0000FWC: You can "
-                        .. "only edit your own "
-                        .. "assignments unless "
-                        .. "you have raid lead "
-                        .. "or assist.|r"
-                )
-
-                return
-            end
-
-            addon:SetAssignment(
-                priest,
-                group
-            )
-
-            addon:RefreshGridUI()
-
-            if addon.RefreshUI then
-                addon:RefreshUI()
-            end
-        end
-    )
-
-    table.insert(objects, button)
-
-    return button
+local function Button(priest,group,x,y)
+    local b=CreateFrame("Button",nil,frame,"UIPanelButtonTemplate")
+    b:SetSize(36,24); b:SetPoint("CENTER",frame,"TOPLEFT",x,y)
+    local assigned=addon:GetAssignment(priest,group)
+    b:SetText(assigned and "X" or "")
+    if InCombatLockdown() or not addon:CanEditPriest(priest) then b:Disable(); b:SetAlpha(assigned and .75 or .25) end
+    b:SetScript("OnClick",function() addon:SetAssignment(priest,group) end)
+    objects[#objects+1]=b
 end
 
 function addon:RefreshGridUI()
-    if not frame:IsShown() then
-        return
-    end
-
-    ClearGrid()
-
-    if addon.ScanRaid then
-        addon:ScanRaid()
-    end
-
-    local width = frame:GetWidth()
-    local height = frame:GetHeight()
-
-    local leftPad = 95
-    local rightPad = 30
-    local topY = -45
-    local rowStartY = -78
-    local rowHeight = 30
-
-    local usableWidth =
-        width - leftPad - rightPad
-
-    local colWidth =
-        usableWidth / 8
-
-    AddText(
-        "Priest",
-        48,
-        topY,
-        "GameFontNormal"
-    )
-
-    for group = 1, 8 do
-        local x =
-            leftPad
-            + ((group - 0.5) * colWidth)
-
-        AddText(
-            "G" .. group,
-            x,
-            topY,
-            "GameFontNormal"
-        )
-    end
-
-    if not addon.state.priests
-        or #addon.state.priests == 0
-    then
-        AddText(
-            "No priests found.",
-            width / 2,
-            -110,
-            "GameFontNormal"
-        )
-
-        return
-    end
-
-    for row, priest in ipairs(
-        addon.state.priests
-    ) do
-        local y =
-            rowStartY
-            - ((row - 1) * rowHeight)
-
-        if math.abs(y) < height - 35 then
-            local template =
-                addon:CanEditPriest(priest)
-                and "GameFontNormal"
-                or "GameFontDisable"
-
-            AddText(
-                priest,
-                48,
-                y,
-                template
-            )
-
-            for group = 1, 8 do
-                local x =
-                    leftPad
-                    + (
-                        (group - 0.5)
-                        * colWidth
-                    )
-
-                AddButton(
-                    priest,
-                    group,
-                    x,
-                    y
-                )
-            end
+    if not frame:IsShown() then return end
+    Clear(); self:ScanGroup()
+    local w,h=frame:GetWidth(),frame:GetHeight()
+    local left,right,top,rowY,rowH=95,30,-45,-78,30
+    local col=(w-left-right)/8
+    Text("Priest",48,top)
+    for g=1,8 do Text("G"..g,left+((g-.5)*col),top) end
+    if #self.state.priests==0 then Text("No priests found.",w/2,-110); return end
+    for r,priest in ipairs(self.state.priests) do
+        local y=rowY-((r-1)*rowH)
+        if math.abs(y)<h-35 then
+            Text(priest,48,y,self:CanEditPriest(priest) and "GameFontNormal" or "GameFontDisable")
+            for g=1,8 do Button(priest,g,left+((g-.5)*col),y) end
         end
     end
-
-    if InCombatLockdown() then
-        AddText(
-            "Combat: assignments are locked.",
-            width / 2,
-            -(height - 32),
-            "GameFontDisable"
-        )
-
-    elseif addon:IsLeader() then
-        AddText(
-            "Lead/assist mode: "
-                .. "you can edit everyone.",
-            width / 2,
-            -(height - 32),
-            "GameFontNormal"
-        )
-    else
-        AddText(
-            "Normal mode: viewing everyone, "
-                .. "editing yourself only.",
-            width / 2,
-            -(height - 32),
-            "GameFontNormal"
-        )
-    end
+    Text(self:IsLeader() and "Lead/assist mode: you can edit everyone." or "Normal mode: viewing everyone, editing yourself only.",w/2,-(h-32),"GameFontNormal")
 end
 
 function addon:ToggleGridUI()
-    frame:SetShown(
-        not frame:IsShown()
-    )
-
-    if frame:IsShown() then
-        addon:RefreshGridUI()
-    end
+    frame:SetShown(not frame:IsShown())
+    if frame:IsShown() then self:RefreshGridUI() end
 end
 
-frame:SetScript(
-    "OnSizeChanged",
-    function()
-        SaveGridPosition(frame)
-
-        if addon.RefreshGridUI then
-            addon:RefreshGridUI()
-        end
-    end
-)
-
-local eventFrame = CreateFrame("Frame")
-
-eventFrame:RegisterEvent(
-    "PLAYER_LOGIN"
-)
-
-eventFrame:RegisterEvent(
-    "PLAYER_REGEN_DISABLED"
-)
-
-eventFrame:RegisterEvent(
-    "PLAYER_REGEN_ENABLED"
-)
-
-eventFrame:RegisterEvent(
-    "GROUP_ROSTER_UPDATE"
-)
-
-eventFrame:SetScript(
-    "OnEvent",
-    function(_, event)
-        if event == "PLAYER_LOGIN" then
-            RestoreGridPosition(frame)
-        end
-
-        if frame:IsShown()
-            and addon.RefreshGridUI
-        then
-            addon:RefreshGridUI()
-        end
-    end
-)
+frame:SetScript("OnSizeChanged",function() if frame:IsShown() then addon:RefreshGridUI() end end)
+addon.gridFrame=frame
